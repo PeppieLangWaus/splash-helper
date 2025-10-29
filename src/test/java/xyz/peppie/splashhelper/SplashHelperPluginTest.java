@@ -1,13 +1,13 @@
-package com.example;
+package xyz.peppie.splashhelper;
 
 import net.runelite.client.RuneLite;
 import net.runelite.client.externalplugins.ExternalPluginManager;
 
-public class ExamplePluginTest
+public class SplashHelperPluginTest
 {
 	public static void main(String[] args) throws Exception
 	{
-		ExternalPluginManager.loadBuiltin(ExamplePlugin.class);
+		ExternalPluginManager.loadBuiltin(SplashHelperPlugin.class);
 		RuneLite.main(args);
 	}
 }

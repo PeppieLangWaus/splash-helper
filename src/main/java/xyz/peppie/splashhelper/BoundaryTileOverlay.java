@@ -1,0 +1,95 @@
+package xyz.peppie.splashhelper;
+
+import java.awt.BasicStroke;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.awt.Polygon;
+import java.awt.Stroke;
+import javax.inject.Inject;
+import net.runelite.api.Client;
+import net.runelite.api.Perspective;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
+import net.runelite.client.ui.overlay.OverlayPosition;
+
+public class BoundaryTileOverlay extends Overlay
+{
+	private final Client client;
+	private final SplashHelperConfig config;
+	private SplashHelperPlugin plugin;
+
+	@Inject
+	private BoundaryTileOverlay(Client client, SplashHelperConfig config)
+	{
+		this.client = client;
+		this.config = config;
+		setPosition(OverlayPosition.DYNAMIC);
+		setLayer(OverlayLayer.ABOVE_SCENE);
+	}
+
+	public void setPlugin(SplashHelperPlugin plugin)
+	{
+		this.plugin = plugin;
+	}
+
+	@Override
+	public Dimension render(Graphics2D graphics)
+	{
+		if (plugin == null)
+		{
+			return null;
+		}
+
+		Stroke originalStroke = graphics.getStroke();
+
+		// Render boundary tile
+		if (plugin.getBoundaryTile() != null)
+		{
+			renderTile(graphics, plugin.getBoundaryTile(), config.boundaryTileColor(), originalStroke);
+		}
+
+		// Render Knight Tile 1
+		if (plugin.getKnightTile1() != null)
+		{
+			renderTile(graphics, plugin.getKnightTile1(), config.knightTile1Color(), originalStroke);
+		}
+
+		// Render Knight Tile 2
+		if (plugin.getKnightTile2() != null)
+		{
+			renderTile(graphics, plugin.getKnightTile2(), config.knightTile2Color(), originalStroke);
+		}
+
+		return null;
+	}
+
+	private void renderTile(Graphics2D graphics, WorldPoint worldPoint, java.awt.Color color, Stroke originalStroke)
+	{
+		LocalPoint localPoint = LocalPoint.fromWorld(client.getTopLevelWorldView(), worldPoint);
+
+		if (localPoint == null)
+		{
+			return;
+		}
+
+		// Get the tile polygon
+		Polygon tilePoly = Perspective.getCanvasTilePoly(client, localPoint);
+
+		if (tilePoly == null)
+		{
+			return;
+		}
+
+		// Fill with transparent dark gray
+		graphics.setColor(new java.awt.Color(0, 0, 0, 100));
+		graphics.fillPolygon(tilePoly);
+
+		// Draw colored border
+		graphics.setStroke(new BasicStroke(2));
+		graphics.setColor(color);
+		graphics.drawPolygon(tilePoly);
+		graphics.setStroke(originalStroke);
+	}
+}

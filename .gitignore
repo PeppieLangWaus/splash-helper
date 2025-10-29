@@ -1,9 +1,11 @@
 .gradle
 build
 .idea/
+.vscode/
 .project
 .settings/
 .classpath
 nbactions.xml
 nb-configuration.xml
 nbproject/
+auto-reload.sh
