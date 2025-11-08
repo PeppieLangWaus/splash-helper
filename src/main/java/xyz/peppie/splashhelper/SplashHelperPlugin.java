@@ -153,7 +153,7 @@ public class SplashHelperPlugin extends Plugin
 				return;
 			}
 			
-			String configuredNpc = config.npcName();
+			String configuredNpc = config.targetNpc().getNpcName();
 			
 			for (NPC npc : client.getTopLevelWorldView().npcs())
 			{
@@ -245,7 +245,8 @@ public class SplashHelperPlugin extends Plugin
 			if (sourceName != null && sourceName.equalsIgnoreCase(playerName)) {
 				String interactedNpcName = cleanNpcName(event.getTarget().getName());
 	
-				if (interactedNpcName.equalsIgnoreCase(config.npcName()))
+				// Check if NPC is allowed and matches configured name
+				if (isAllowedNpc(interactedNpcName) && interactedNpcName.equalsIgnoreCase(config.targetNpc().getNpcName()))
 				{
 					currentTarget = event.getTarget();
 					startTimer();	
@@ -510,6 +511,24 @@ public class SplashHelperPlugin extends Plugin
 		movementsPerMinute = 0.0;
 	}
 
+	/**
+	 * Checks if an NPC is allowed to be set as a target.
+	 * @param npcName The cleaned NPC name
+	 * @return true if the NPC is allowed, false otherwise
+	 */
+	private boolean isAllowedNpc(String npcName)
+	{
+		if (npcName == null)
+		{
+			return false;
+		}
+		
+		// List of allowed NPCs for targeting
+		return npcName.equalsIgnoreCase("Knight of Ardougne") ||
+			   npcName.equalsIgnoreCase("Rat") ||
+			   npcName.equalsIgnoreCase("Guard");
+	}
+
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
@@ -527,11 +546,11 @@ public class SplashHelperPlugin extends Plugin
 		String targetName = cleanNpcName(event.getMenuTarget());
 		Actor clickedActor = client.getTopLevelWorldView().npcs().byIndex(event.getId());
 
-		// Check if this is the NPC we're tracking
-		String configuredNpc = config.npcName();
+		// Check if this is the NPC we're tracking and if it's allowed
+		String configuredNpc = config.targetNpc().getNpcName();
 		if (configuredNpc != null && !configuredNpc.isEmpty())
 		{
-			if (targetName.equalsIgnoreCase(configuredNpc))
+			if (isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
 			{
 				startTimer();
 				currentTarget = clickedActor;

@@ -20,13 +20,13 @@ public interface SplashHelperConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "npcName",
-		name = "NPC Name",
-		description = "The name of the NPC to track clicks on (e.g., 'Chicken', 'Rat')"
+		keyName = "targetNpc",
+		name = "Target NPC",
+		description = "Select the NPC to track for splashing"
 	)
-	default String npcName()
+	default TargetNpc targetNpc()
 	{
-		return "Knight of Ardougne";
+		return TargetNpc.KNIGHT_OF_ARDOUGNE;
 	}
 
 	@ConfigItem(
