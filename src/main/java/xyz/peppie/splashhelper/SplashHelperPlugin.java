@@ -240,12 +240,16 @@ public class SplashHelperPlugin extends Plugin
 	{
 		if (event.getTarget() != null && event.getTarget().getName() != null) 
 		{
-			String interactedNpcName = cleanNpcName(event.getTarget().getName());
-
-			if (interactedNpcName.equalsIgnoreCase(config.npcName()))
-			{
-				currentTarget = event.getTarget();
-				startTimer();	
+			String sourceName = event.getSource().getName();
+			String playerName = client.getLocalPlayer().getName();
+			if (sourceName != null && sourceName.equalsIgnoreCase(playerName)) {
+				String interactedNpcName = cleanNpcName(event.getTarget().getName());
+	
+				if (interactedNpcName.equalsIgnoreCase(config.npcName()))
+				{
+					currentTarget = event.getTarget();
+					startTimer();	
+				}
 			}
 		}
 	}
@@ -274,7 +278,7 @@ public class SplashHelperPlugin extends Plugin
 			if (entry.getType() == MenuAction.WALK)
 			{
 				// Create main "Knight Boundary" menu entry
-				MenuEntry boundaryMenu = client.createMenuEntry(-1)
+				MenuEntry boundaryMenu = client.createMenuEntry(1)
 					.setOption("Knight Boundary")
 					.setTarget("")
 					.setType(MenuAction.RUNELITE);
@@ -311,7 +315,7 @@ public class SplashHelperPlugin extends Plugin
 					.onClick(this::onBoundaryColorClick);
 				
 				// Create main "Knight Tile 1" menu entry
-				MenuEntry tile1Menu = client.createMenuEntry(-2)
+				MenuEntry tile1Menu = client.createMenuEntry(2)
 					.setOption("Knight Tile 1")
 					.setTarget("")
 					.setType(MenuAction.RUNELITE);
@@ -348,7 +352,7 @@ public class SplashHelperPlugin extends Plugin
 					.onClick(this::onKnightTile1ColorClick);
 				
 				// Create main "Knight Tile 2" menu entry
-				MenuEntry tile2Menu = client.createMenuEntry(-3)
+				MenuEntry tile2Menu = client.createMenuEntry(3)
 					.setOption("Knight Tile 2")
 					.setTarget("")
 					.setType(MenuAction.RUNELITE);
