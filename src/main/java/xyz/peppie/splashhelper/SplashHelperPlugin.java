@@ -1,10 +1,15 @@
 package xyz.peppie.splashhelper;
 
 import com.google.inject.Provides;
+import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.Instant;
 import java.awt.TrayIcon;
 import java.awt.Color;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -12,16 +17,22 @@ import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.NPC;
+import net.runelite.api.Player;
+import net.runelite.api.Skill;
 import net.runelite.api.Tile;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.InteractingChanged;
@@ -34,7 +45,12 @@ import net.runelite.client.config.RequestFocusType;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.ImageUtil;
+import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
+import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
 
 @Slf4j
 @PluginDescriptor(
@@ -60,7 +76,14 @@ public class SplashHelperPlugin extends Plugin
 	private BoundaryTileOverlay boundaryOverlay;
 
 	@Inject
+	private ClientToolbar clientToolbar;
+
+	@Inject
 	private Notifier notifier;
+
+	// Statistics panel
+	private SplashStatisticsPanel statisticsPanel;
+	private NavigationButton navButton;
 
 	@Getter
 	private Instant timerEnd;
@@ -73,6 +96,7 @@ public class SplashHelperPlugin extends Plugin
 	private WorldPoint knightTile1 = null;
 	@Getter
 	private WorldPoint knightTile2 = null;
+	@Getter
 	private Actor currentTarget = null;
 	private boolean boundaryNotified = false;
 	
@@ -82,6 +106,32 @@ public class SplashHelperPlugin extends Plugin
 	private Instant trackingStartTime = null;
 	@Getter
 	private double movementsPerMinute = 0.0;
+
+	// hasEscaped state machine
+	@Getter
+	private boolean hasEscaped = false;
+	private int boundaryTickCounter = 0;
+	private static final int BOUNDARY_DEBOUNCE_TICKS = 5;
+	private boolean notificationsMuted = false;
+
+	// Session tracking
+	@Getter
+	private SplashSession currentSession = null;
+	@Getter
+	private final List<SplashSession> sessionHistory = new ArrayList<>();
+	private Instant lastStatsSample = null;
+	private boolean isSplashing = false;
+
+	// Player tracking for pickpocketers
+	private final Set<String> pickpocketers = new HashSet<>();
+	@Getter
+	private int currentPickpocketerCount = 0;
+
+	// Visual notification state
+	@Getter
+	private boolean showVisualNotification = false;
+	private Instant visualNotificationEnd = null;
+	private static final int VISUAL_NOTIFICATION_DURATION_MS = 2000;
 
 	@Provides
 	SplashHelperConfig provideConfig(ConfigManager configManager)
@@ -97,6 +147,20 @@ public class SplashHelperPlugin extends Plugin
 		boundaryOverlay.setPlugin(this);
 		overlayManager.add(overlay);
 		overlayManager.add(boundaryOverlay);
+
+		// Create statistics panel
+		statisticsPanel = new SplashStatisticsPanel(this, config);
+		
+		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon.png");
+		
+		navButton = NavigationButton.builder()
+			.tooltip("Splash Statistics")
+			.icon(icon)
+			.priority(10)
+			.panel(statisticsPanel)
+			.build();
+		
+		clientToolbar.addNavigation(navButton);
 	}
 
 	@Override
@@ -105,6 +169,17 @@ public class SplashHelperPlugin extends Plugin
 		log.info("Splash Helper stopped!");
 		overlayManager.remove(overlay);
 		overlayManager.remove(boundaryOverlay);
+		if (navButton != null)
+		{
+			clientToolbar.removeNavigation(navButton);
+		}
+		
+		// Finalize any active session
+		if (currentSession != null && currentSession.isActive())
+		{
+			finalizeSession();
+		}
+		
 		timerEnd = null;
 		hasNotified = false;
 		boundaryTile = null;
@@ -116,6 +191,16 @@ public class SplashHelperPlugin extends Plugin
 		movementCount = 0;
 		trackingStartTime = null;
 		movementsPerMinute = 0.0;
+		hasEscaped = false;
+		boundaryTickCounter = 0;
+		notificationsMuted = false;
+		currentSession = null;
+		lastStatsSample = null;
+		isSplashing = false;
+		pickpocketers.clear();
+		currentPickpocketerCount = 0;
+		showVisualNotification = false;
+		visualNotificationEnd = null;
 	}
 
 	@Subscribe
@@ -133,47 +218,96 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		// Update visual notification state
+		if (showVisualNotification && visualNotificationEnd != null)
+		{
+			if (Instant.now().isAfter(visualNotificationEnd))
+			{
+				showVisualNotification = false;
+				visualNotificationEnd = null;
+			}
+		}
+
 		// Check if timer has expired and send notification
 		if (timerEnd != null && !hasNotified)
 		{
 			Duration remaining = Duration.between(Instant.now(), timerEnd);
 			if (remaining.isNegative() || remaining.isZero())
 			{
-				sendNotification("Splash timer has expired!");
+				sendTimerNotification("Splash timer has expired!");
 				hasNotified = true;
 				log.info("Timer expired - notification sent");
 			}
 		}
 
-		// Check if NPC is on boundary tile
-		if (boundaryTile != null && currentTarget != null)
+		// Check HP threshold when knight can attack (hasEscaped is true)
+		if (hasEscaped && config.enableHpNotification())
 		{
-			if (client.getTopLevelWorldView() == null)
+			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+			if (currentHp <= config.hpThreshold())
 			{
-				return;
+				sendHpNotification("HP is low (" + currentHp + ")! Knight may be attacking you!");
 			}
+		}
+
+		if (client.getTopLevelWorldView() == null)
+		{
+			return;
+		}
+
+		// Check knight position for hasEscaped state machine and boundary notifications
+		if (currentTarget != null && currentTarget instanceof NPC)
+		{
+			NPC knight = (NPC) currentTarget;
+			WorldPoint knightPos = knight.getWorldLocation();
 			
-			String configuredNpc = config.targetNpc().getNpcName();
-			
-			for (NPC npc : client.getTopLevelWorldView().npcs())
+			if (knightPos != null)
 			{
-				if (npc != null && npc.getWorldLocation() != null)
+				boolean onKnightTile = (knightTile1 != null && knightPos.equals(knightTile1)) ||
+									   (knightTile2 != null && knightPos.equals(knightTile2));
+				boolean onBoundary = boundaryTile != null && knightPos.equals(boundaryTile);
+				
+				// hasEscaped state machine
+				if (onBoundary)
 				{
-					String npcName = cleanNpcName(npc.getName());
-					
-					// Check if NPC matches configured name (if set)
-					boolean nameMatches = configuredNpc == null || configuredNpc.isEmpty() || 
-						(npcName != null && npcName.equalsIgnoreCase(configuredNpc));
-					
-					if (nameMatches)
+					if (!hasEscaped)
 					{
-						if (npc.getWorldLocation().equals(boundaryTile))
+						hasEscaped = true;
+						boundaryTickCounter = 0;
+						
+						// Send notification only once when entering boundary
+						if (!boundaryNotified && config.enableBoundaryNotification())
 						{
-							String displayName = npcName != null ? npcName : "NPC";
-							sendNotification(displayName + " reached boundary tile!");
+							sendBoundaryNotification("Knight reached boundary tile!");
 							boundaryNotified = true;
-							log.info("✓ NPC '{}' reached boundary at {}", displayName, boundaryTile);
-							break;
+						}
+					}
+					else
+					{
+						boundaryTickCounter++;
+					}
+				}
+				else if (onKnightTile)
+				{
+					// Knight returned to original tile
+					if (hasEscaped)
+					{
+						hasEscaped = false;
+						notificationsMuted = false;
+						boundaryNotified = false;
+						boundaryTickCounter = 0;
+					}
+				}
+				else
+				{
+					// Knight is on some other tile (not boundary, not knight tiles)
+					if (hasEscaped)
+					{
+						boundaryTickCounter++;
+						// After 5 ticks on a non-valid tile, allow re-notification
+						if (boundaryTickCounter >= BOUNDARY_DEBOUNCE_TICKS)
+						{
+							boundaryNotified = false;
 						}
 					}
 				}
@@ -209,6 +343,10 @@ public class SplashHelperPlugin extends Plugin
 						if ((wasOnTile1 && onTile2) || (wasOnTile2 && onTile1))
 						{
 							movementCount++;
+							if (currentSession != null)
+							{
+								currentSession.incrementKnightMovements();
+							}
 						}
 						
 						lastNpcPosition = currentPosition;
@@ -231,6 +369,27 @@ public class SplashHelperPlugin extends Plugin
 				{
 					lastNpcPosition = currentPosition;
 				}
+			}
+		}
+
+		// Session statistics sampling and panel update
+		if (config.enableStatistics())
+		{
+			Instant now = Instant.now();
+			if (currentSession != null && currentSession.isActive())
+			{
+				if (lastStatsSample == null || 
+					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
+				{
+					sampleSessionStatistics();
+					lastStatsSample = now;
+				}
+			}
+			
+			// Update statistics panel
+			if (statisticsPanel != null)
+			{
+				statisticsPanel.updatePanel();
 			}
 		}
 	}
@@ -532,6 +691,18 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
+		// When hasEscaped is true and player interacts, mute notifications until knight returns
+		if (hasEscaped && !notificationsMuted)
+		{
+			// Any click interaction while escaped mutes notifications
+			if (event.getMenuAction() != MenuAction.CANCEL &&
+				event.getMenuAction() != MenuAction.WALK)
+			{
+				notificationsMuted = true;
+				log.info("Notifications muted - player interacted while knight escaped");
+			}
+		}
+
 		// Check if the click is an NPC interaction
 		if (event.getMenuAction() != MenuAction.NPC_FIRST_OPTION &&
 			event.getMenuAction() != MenuAction.NPC_SECOND_OPTION &&
@@ -614,9 +785,331 @@ public class SplashHelperPlugin extends Plugin
 			FlashNotification.DISABLED,
 			Color.GREEN,
 			false
-
-		
 			);
 		notifier.notify(notification, message);
+	}
+
+	private void sendTimerNotification(String message)
+	{
+		if (!config.enableTimerNotification())
+		{
+			return;
+		}
+		if (notificationsMuted)
+		{
+			return;
+		}
+		sendNotificationInternal(message);
+	}
+
+	private void sendBoundaryNotification(String message)
+	{
+		if (!config.enableBoundaryNotification())
+		{
+			return;
+		}
+		if (notificationsMuted)
+		{
+			return;
+		}
+		sendNotificationInternal(message);
+	}
+
+	private void sendHpNotification(String message)
+	{
+		if (!config.enableHpNotification())
+		{
+			return;
+		}
+		if (notificationsMuted)
+		{
+			return;
+		}
+		sendNotificationInternal(message);
+	}
+
+	private void sendNotificationInternal(String message)
+	{
+		client.addChatMessage(ChatMessageType.GAMEMESSAGE, this.getName(), message, null);
+		
+		if (config.useVisualNotification())
+		{
+			// Trigger visual notification
+			showVisualNotification = true;
+			visualNotificationEnd = Instant.now().plusMillis(VISUAL_NOTIFICATION_DURATION_MS);
+		}
+		else
+		{
+			// Send sound notification
+			Notification notification = new Notification(
+				true,
+				true,
+				false,
+				false,
+				TrayIcon.MessageType.WARNING,
+				RequestFocusType.OFF,
+				NotificationSound.CUSTOM,
+				null,
+				client.getMusicVolume(),
+				1,
+				true,
+				FlashNotification.DISABLED,
+				Color.GREEN,
+				false
+				);
+			notifier.notify(notification, message);
+		}
+	}
+
+	// ==================== Session Management ====================
+
+	private void startSession()
+	{
+		if (currentSession != null && currentSession.isActive())
+		{
+			finalizeSession();
+		}
+
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return;
+		}
+
+		String playerName = localPlayer.getName();
+		SplashSpell spell = config.selectedSpell();
+		int world = client.getWorld();
+		int startMagicXp = client.getSkillExperience(Skill.MAGIC);
+		
+		// Check if knight is sticky (female model - NPC ID check would be needed)
+		boolean stickyKnight = isStickyKnight();
+
+		currentSession = new SplashSession(
+			playerName,
+			spell,
+			timerEnd,
+			world,
+			stickyKnight,
+			startMagicXp
+		);
+
+		// Set initial rune count
+		currentSession.setStartingRuneCount(countLimitingRunes(spell));
+		currentSession.setCurrentRuneCount(currentSession.getStartingRuneCount());
+
+		isSplashing = true;
+		lastStatsSample = Instant.now();
+		
+		log.info("Splash session started for {} using {}", playerName, spell);
+	}
+
+	private void finalizeSession()
+	{
+		if (currentSession == null)
+		{
+			return;
+		}
+
+		currentSession.finalizeSession();
+		sessionHistory.add(currentSession);
+		
+		log.info("Session finalized: {} casts, {} XP gained, {}s duration",
+			currentSession.getSpellsCast(),
+			currentSession.getMagicXpGained(),
+			currentSession.getSessionDurationSeconds());
+
+		currentSession = null;
+		isSplashing = false;
+		lastStatsSample = null;
+	}
+
+	private void sampleSessionStatistics()
+	{
+		if (currentSession == null || !currentSession.isActive())
+		{
+			return;
+		}
+
+		// Update magic XP
+		currentSession.setCurrentMagicXp(client.getSkillExperience(Skill.MAGIC));
+
+		// Update rune count
+		SplashSpell spell = currentSession.getSpell();
+		if (spell != null)
+		{
+			currentSession.setCurrentRuneCount(countLimitingRunes(spell));
+		}
+
+		// Count nearby players
+		int nearbyPlayers = countNearbyPlayers(config.playerCountRadius());
+		currentSession.addPlayerCountSample(nearbyPlayers);
+
+		// Add pickpocketers to session
+		for (String pickpocketer : pickpocketers)
+		{
+			currentSession.addPickpocketer(pickpocketer);
+		}
+		currentPickpocketerCount = currentSession.getPickpocketerCount();
+	}
+
+	private int countNearbyPlayers(int radius)
+	{
+		if (client.getTopLevelWorldView() == null || client.getLocalPlayer() == null)
+		{
+			return 0;
+		}
+
+		WorldPoint playerLocation = client.getLocalPlayer().getWorldLocation();
+		int count = 0;
+
+		for (Player player : client.getTopLevelWorldView().players())
+		{
+			if (player != null && player != client.getLocalPlayer())
+			{
+				WorldPoint otherLocation = player.getWorldLocation();
+				if (otherLocation != null && playerLocation.distanceTo(otherLocation) <= radius)
+				{
+					count++;
+				}
+			}
+		}
+
+		return count;
+	}
+
+	private int countLimitingRunes(SplashSpell spell)
+	{
+		if (spell == null)
+		{
+			return 0;
+		}
+
+		ItemContainer inventory = client.getItemContainer(InventoryID.INVENTORY);
+		if (inventory == null)
+		{
+			return 0;
+		}
+
+		int minCasts = Integer.MAX_VALUE;
+		
+		for (SplashSpell.RuneCost cost : spell.getRuneCosts())
+		{
+			int runeCount = 0;
+			for (Item item : inventory.getItems())
+			{
+				if (item.getId() == cost.getItemId())
+				{
+					runeCount += item.getQuantity();
+				}
+			}
+			int castsWithThisRune = runeCount / cost.getAmount();
+			minCasts = Math.min(minCasts, castsWithThisRune);
+		}
+
+		return minCasts == Integer.MAX_VALUE ? 0 : minCasts;
+	}
+
+	private boolean isStickyKnight()
+	{
+		if (currentTarget == null || !(currentTarget instanceof NPC))
+		{
+			return false;
+		}
+		NPC knight = (NPC) currentTarget;
+		// Female knight model IDs - these would need to be verified
+		// For now, return false as a placeholder
+		return knight.getId() == 3297; // Female knight ID (needs verification)
+	}
+
+	// ==================== Event Handlers ====================
+
+	@Subscribe
+	public void onAnimationChanged(AnimationChanged event)
+	{
+		Actor actor = event.getActor();
+		
+		// Check if local player is casting a spell
+		if (actor == client.getLocalPlayer())
+		{
+			int animationId = actor.getAnimation();
+			// Magic cast animations
+			if (animationId == 711 || animationId == 710 || animationId == 716 || animationId == 727)
+			{
+				// Player is casting a spell
+				if (currentSession != null && currentSession.isActive())
+				{
+					currentSession.incrementSpellsCast();
+				}
+				else if (isSplashingConditionsMet())
+				{
+					// Start a new session
+					startSession();
+				}
+			}
+		}
+
+		// Check if a player near the knight is pickpocketing
+		if (actor instanceof Player && actor != client.getLocalPlayer())
+		{
+			Player player = (Player) actor;
+			int animationId = player.getAnimation();
+			
+			// Pickpocket animation ID
+			if (animationId == 881)
+			{
+				// Check if they're near the knight
+				if (currentTarget != null)
+				{
+					WorldPoint playerPos = player.getWorldLocation();
+					WorldPoint knightPos = currentTarget.getWorldLocation();
+					
+					if (playerPos != null && knightPos != null && playerPos.distanceTo(knightPos) <= 1)
+					{
+						String playerName = player.getName();
+						if (playerName != null)
+						{
+							pickpocketers.add(playerName);
+							if (currentSession != null)
+							{
+								currentSession.addPickpocketer(playerName);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	@Subscribe
+	public void onHitsplatApplied(HitsplatApplied event)
+	{
+		// Track pickpocket hitsplats on the knight
+		if (currentTarget != null && event.getActor() == currentTarget)
+		{
+			// Someone hit the knight (could be pickpocket or splash)
+			// We primarily track via animation, so this is supplementary
+		}
+	}
+
+	private boolean isSplashingConditionsMet()
+	{
+		// Check if all conditions are met to start tracking
+		if (currentTarget == null)
+		{
+			return false;
+		}
+		if (knightTile1 == null || knightTile2 == null)
+		{
+			return false;
+		}
+		
+		WorldPoint knightPos = currentTarget.getWorldLocation();
+		if (knightPos == null)
+		{
+			return false;
+		}
+		
+		boolean onValidTile = knightPos.equals(knightTile1) || knightPos.equals(knightTile2);
+		return onValidTile;
 	}
 }

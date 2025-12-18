@@ -1,4 +1,4 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.overlays;
 
 import java.awt.Color;
 import java.awt.Dimension;
@@ -13,6 +13,8 @@ import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.PanelComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
+import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.SplashHelperPlugin;
 
 public class SplashHelperOverlay extends Overlay
 {

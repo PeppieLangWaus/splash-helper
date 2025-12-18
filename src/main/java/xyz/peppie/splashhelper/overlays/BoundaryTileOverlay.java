@@ -1,4 +1,4 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.overlays;
 
 import java.awt.BasicStroke;
 import java.awt.Dimension;
@@ -13,6 +13,8 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
+import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.SplashHelperPlugin;
 
 public class BoundaryTileOverlay extends Overlay
 {
