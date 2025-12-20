@@ -31,12 +31,11 @@ public class SplashSupplyTrackerBox extends JPanel
 		this.itemManager = itemManager;
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-		setBorder(new EmptyBorder(5, 0, 0, 0));
+		setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
 		boxTitle.setLayout(new BorderLayout());
 		boxTitle.setBorder(new EmptyBorder(7, 10, 7, 10));
 		boxTitle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		boxTitle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
 
 		titleLabel.setText(title);
 		titleLabel.setFont(FontManager.getRunescapeBoldFont());
@@ -72,14 +71,10 @@ public class SplashSupplyTrackerBox extends JPanel
 		int rowSize = ((runeCount % ITEMS_PER_ROW == 0) ? 0 : 1) + runeCount / ITEMS_PER_ROW;
 		itemContainer.setLayout(new GridLayout(rowSize, ITEMS_PER_ROW, 1, 1));
 		
-		// Set fixed height based on rows
-		int containerHeight = rowSize * ITEM_SIZE;
-		int titleHeight = 30;
-		int totalHeight = containerHeight + titleHeight + 5; // 5 for border
-		
-		// Constrain the entire box height
-		setPreferredSize(new Dimension(ITEMS_PER_ROW * ITEM_SIZE, totalHeight));
-		setMaximumSize(new Dimension(Integer.MAX_VALUE, totalHeight));
+		// Set preferred height for item container based on rows (with padding)
+		int containerHeight = rowSize * ITEM_SIZE + 20; // 20 for padding (10 top + 10 bottom)
+		itemContainer.setPreferredSize(new Dimension(ITEMS_PER_ROW * ITEM_SIZE, containerHeight));
+		itemContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, containerHeight));
 
 		for (int[] runeData : actualRuneUsage)
 		{
