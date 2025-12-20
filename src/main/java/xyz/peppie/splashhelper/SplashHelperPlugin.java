@@ -7,9 +7,7 @@ import java.time.Instant;
 import java.awt.TrayIcon;
 import java.awt.Color;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -17,9 +15,6 @@ import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
-import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
@@ -158,10 +153,11 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private volatile java.util.List<int[]> cachedActualRuneUsage = new java.util.ArrayList<>();
 
-	// Player tracking for pickpocketers
-	private final Set<String> pickpocketers = new HashSet<>();
-	@Getter
-	private int currentPickpocketerCount = 0;
+	// Player tracking delegated to PlayerTracker service
+	public int getCurrentPickpocketerCount()
+	{
+		return currentSession != null ? currentSession.getPickpocketerCount() : 0;
+	}
 
 	// Visual notification state
 	@Getter
@@ -233,8 +229,7 @@ public class SplashHelperPlugin extends Plugin
 		currentSession = null;
 		lastStatsSample = null;
 		isSplashing = false;
-		pickpocketers.clear();
-		currentPickpocketerCount = 0;
+		playerTracker.reset();
 		showVisualNotification = false;
 		visualNotificationEnd = null;
 	}
@@ -1074,12 +1069,11 @@ public class SplashHelperPlugin extends Plugin
 		int nearbyPlayers = countNearbyPlayers(config.playerCountRadius());
 		currentSession.addPlayerCountSample(nearbyPlayers);
 
-		// Add pickpocketers to session
-		for (String pickpocketer : pickpocketers)
+		// Add pickpocketers to session from tracker
+		for (String pickpocketer : playerTracker.getPickpocketers())
 		{
 			currentSession.addPickpocketer(pickpocketer);
 		}
-		currentPickpocketerCount = currentSession.getPickpocketerCount();
 	}
 
 	private int countNearbyPlayers(int radius)
@@ -1191,7 +1185,7 @@ public class SplashHelperPlugin extends Plugin
 						String playerName = player.getName();
 						if (playerName != null)
 						{
-							pickpocketers.add(playerName);
+							playerTracker.addPickpocketer(playerName);
 							if (currentSession != null)
 							{
 								currentSession.addPickpocketer(playerName);
