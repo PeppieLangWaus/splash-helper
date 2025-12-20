@@ -6,7 +6,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.awt.TrayIcon;
 import java.awt.Color;
-import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
 import lombok.Getter;
@@ -52,7 +51,6 @@ import xyz.peppie.splashhelper.service.KnightDetector;
 import xyz.peppie.splashhelper.service.PlayerTracker;
 import xyz.peppie.splashhelper.service.RuneCalculator;
 import xyz.peppie.splashhelper.service.SessionManager;
-import xyz.peppie.splashhelper.util.Constants;
 
 @Slf4j
 @PluginDescriptor(
@@ -132,19 +130,21 @@ public class SplashHelperPlugin extends Plugin
 	private static final int BOUNDARY_DEBOUNCE_TICKS = 5;
 	private boolean notificationsMuted = false;
 
-	// Session tracking
-	@Getter
-	private SplashSession currentSession = null;
-	@Getter
-	private final List<SplashSession> sessionHistory = new ArrayList<>();
+	// Session tracking delegated to SessionManager service
 	private Instant lastStatsSample = null;
 	private boolean isSplashing = false;
-	
-	// Cast tracking via XP drops
-	private int lastMagicXp = -1;
-	private Instant lastCastTime = null;
-	private static final int SESSION_TIMEOUT_SECONDS = Constants.SESSION_TIMEOUT_SECONDS;
-	
+
+	// Session delegation methods
+	public SplashSession getCurrentSession()
+	{
+		return sessionManager.getCurrentSession();
+	}
+
+	public List<SplashSession> getSessionHistory()
+	{
+		return sessionManager.getSessionHistory();
+	}
+
 	// Cached values for UI (updated on client thread)
 	@Getter
 	private volatile int cachedRemainingCasts = 0;
@@ -156,7 +156,8 @@ public class SplashHelperPlugin extends Plugin
 	// Player tracking delegated to PlayerTracker service
 	public int getCurrentPickpocketerCount()
 	{
-		return currentSession != null ? currentSession.getPickpocketerCount() : 0;
+		SplashSession session = sessionManager.getCurrentSession();
+		return session != null ? session.getPickpocketerCount() : 0;
 	}
 
 	// Visual notification state
@@ -207,10 +208,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		// Finalize any active session
-		if (currentSession != null && currentSession.isActive())
-		{
-			finalizeSession();
-		}
+		sessionManager.finalizeSession();
 		
 		timerEnd = null;
 		hasNotified = false;
@@ -226,7 +224,6 @@ public class SplashHelperPlugin extends Plugin
 		hasEscaped = false;
 		boundaryTickCounter = 0;
 		notificationsMuted = false;
-		currentSession = null;
 		lastStatsSample = null;
 		isSplashing = false;
 		playerTracker.reset();
@@ -239,9 +236,6 @@ public class SplashHelperPlugin extends Plugin
 	{
 		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
 		{
-			// Initialize magic XP tracking
-			lastMagicXp = client.getSkillExperience(Skill.MAGIC);
-			
 			if (config.enableWelcomeMessage())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Splash Helper is active!", null);
@@ -257,65 +251,56 @@ public class SplashHelperPlugin extends Plugin
 			return;
 		}
 
-		int currentXp = event.getXp();
-		
-		// Initialize on first call
-		if (lastMagicXp < 0)
+		if (!sessionManager.hasActiveSession())
 		{
-			lastMagicXp = currentXp;
 			return;
 		}
 
-		int xpGained = currentXp - lastMagicXp;
-		lastMagicXp = currentXp;
-
-		// Only count positive XP gains (spell cast)
-		if (xpGained > 0 && currentSession != null && currentSession.isActive())
+		int currentXp = event.getXp();
+		SplashSession session = sessionManager.getCurrentSession();
+		
+		// Detect or use configured spell
+		SplashSpell spell = null;
+		if (config.autoDetectSpell())
 		{
-			// Detect or use configured spell
-			SplashSpell detectedSpell = null;
-			if (config.autoDetectSpell())
+			// Try to detect from XP - need to calculate gain
+			int lastXp = session.getCurrentMagicXp();
+			if (lastXp > 0)
 			{
-				detectedSpell = SplashSpell.fromXpDrop(xpGained);
-				if (detectedSpell != null && currentSession.getSpell() != detectedSpell)
+				int xpGained = currentXp - lastXp;
+				if (xpGained > 0)
 				{
-					currentSession.setSpell(detectedSpell);
-					log.debug("Auto-detected spell: {} from {} XP", detectedSpell.getName(), xpGained);
+					spell = SplashSpell.fromXpDrop(xpGained);
+					if (spell != null)
+					{
+						sessionManager.updateSpell(spell);
+						log.debug("Auto-detected spell: {} from {} XP", spell.getName(), xpGained);
+					}
 				}
 			}
-			else
+			if (spell == null)
 			{
-				// Use manually configured spell
-				SplashSpell configSpell = config.selectedSpell();
-				if (currentSession.getSpell() != configSpell)
-				{
-					currentSession.setSpell(configSpell);
-				}
+				spell = session.getSpell();
 			}
-			
-			// Increment cast counter
-			currentSession.incrementSpellsCast();
-			
-			// Update XP
-			currentSession.setCurrentMagicXp(currentXp);
-			
-			// Update rune count
-			SplashSpell spell = currentSession.getSpell();
-			if (spell != null)
-			{
-				currentSession.setCurrentRuneCount(countLimitingRunes(spell));
-			}
-			
-			// Record last cast time for timeout
-			lastCastTime = Instant.now();
-			
+		}
+		else
+		{
+			spell = config.selectedSpell();
+			sessionManager.updateSpell(spell);
+		}
+
+		// Record the cast via SessionManager
+		int xpGained = sessionManager.recordCast(currentXp, spell);
+		
+		if (xpGained > 0)
+		{
 			// Update panel
 			if (statisticsPanel != null)
 			{
 				statisticsPanel.updatePanel();
 			}
 			
-			log.debug("Spell cast detected: +{} XP, total casts: {}", xpGained, currentSession.getSpellsCast());
+			log.debug("Spell cast detected: +{} XP, total casts: {}", xpGained, session.getSpellsCast());
 		}
 	}
 
@@ -447,10 +432,7 @@ public class SplashHelperPlugin extends Plugin
 						if ((wasOnTile1 && onTile2) || (wasOnTile2 && onTile1))
 						{
 							movementCount++;
-							if (currentSession != null)
-							{
-								currentSession.incrementKnightMovements();
-							}
+							sessionManager.recordKnightMovement();
 						}
 						
 						lastNpcPosition = currentPosition;
@@ -485,14 +467,12 @@ public class SplashHelperPlugin extends Plugin
 			cachedActualRuneUsage = getActualRuneUsage();
 			
 			Instant now = Instant.now();
-			if (currentSession != null && currentSession.isActive())
+			if (sessionManager.hasActiveSession())
 			{
-				// Check for session timeout (no cast in last 10 seconds)
-				if (lastCastTime != null && 
-					Duration.between(lastCastTime, now).getSeconds() >= SESSION_TIMEOUT_SECONDS)
+				// Check for session timeout via service
+				if (sessionManager.checkSessionTimeout())
 				{
-					log.info("Session timeout - no cast in {} seconds", SESSION_TIMEOUT_SECONDS);
-					finalizeSession();
+					isSplashing = false;
 				}
 				else if (lastStatsSample == null || 
 					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
@@ -860,7 +840,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		// Start session when timer starts (player engaged with target)
-		if (config.enableStatistics() && (currentSession == null || !currentSession.isActive()))
+		if (config.enableStatistics() && !sessionManager.hasActiveSession())
 		{
 			startSession(config.selectedSpell());
 		}
@@ -987,10 +967,8 @@ public class SplashHelperPlugin extends Plugin
 
 	private void startSession(SplashSpell spell)
 	{
-		if (currentSession != null && currentSession.isActive())
-		{
-			finalizeSession();
-		}
+		// Finalize any existing session first
+		sessionManager.finalizeSession();
 
 		Player localPlayer = client.getLocalPlayer();
 		if (localPlayer == null)
@@ -1000,27 +978,9 @@ public class SplashHelperPlugin extends Plugin
 
 		String playerName = localPlayer.getName();
 		int world = client.getWorld();
-		int startMagicXp = client.getSkillExperience(Skill.MAGIC);
-		
-		// Initialize cast tracking
-		lastMagicXp = startMagicXp;
-		lastCastTime = Instant.now();
-		
-		// Check if knight is sticky (female model - NPC ID check would be needed)
 		boolean stickyKnight = isStickyKnight();
 
-		currentSession = new SplashSession(
-			playerName,
-			spell,
-			timerEnd,
-			world,
-			stickyKnight,
-			startMagicXp
-		);
-
-		// Set initial rune count
-		currentSession.setStartingRuneCount(countLimitingRunes(spell));
-		currentSession.setCurrentRuneCount(currentSession.getStartingRuneCount());
+		sessionManager.startSession(playerName, spell, timerEnd, world, stickyKnight);
 
 		isSplashing = true;
 		lastStatsSample = Instant.now();
@@ -1030,49 +990,37 @@ public class SplashHelperPlugin extends Plugin
 
 	private void finalizeSession()
 	{
-		if (currentSession == null)
-		{
-			return;
-		}
-
-		currentSession.finalizeSession();
-		sessionHistory.add(currentSession);
-		
-		log.info("Session finalized: {} casts, {} XP gained, {}s duration",
-			currentSession.getSpellsCast(),
-			currentSession.getMagicXpGained(),
-			currentSession.getSessionDurationSeconds());
-
-		currentSession = null;
+		sessionManager.finalizeSession();
 		isSplashing = false;
 		lastStatsSample = null;
 	}
 
 	private void sampleSessionStatistics()
 	{
-		if (currentSession == null || !currentSession.isActive())
+		SplashSession session = sessionManager.getCurrentSession();
+		if (session == null || !session.isActive())
 		{
 			return;
 		}
 
 		// Update magic XP
-		currentSession.setCurrentMagicXp(client.getSkillExperience(Skill.MAGIC));
+		session.setCurrentMagicXp(client.getSkillExperience(Skill.MAGIC));
 
 		// Update rune count
-		SplashSpell spell = currentSession.getSpell();
+		SplashSpell spell = session.getSpell();
 		if (spell != null)
 		{
-			currentSession.setCurrentRuneCount(countLimitingRunes(spell));
+			session.setCurrentRuneCount(countLimitingRunes(spell));
 		}
 
 		// Count nearby players
 		int nearbyPlayers = countNearbyPlayers(config.playerCountRadius());
-		currentSession.addPlayerCountSample(nearbyPlayers);
+		sessionManager.recordPlayerCountSample(nearbyPlayers);
 
 		// Add pickpocketers to session from tracker
 		for (String pickpocketer : playerTracker.getPickpocketers())
 		{
-			currentSession.addPickpocketer(pickpocketer);
+			sessionManager.addPickpocketer(pickpocketer);
 		}
 	}
 
@@ -1142,9 +1090,10 @@ public class SplashHelperPlugin extends Plugin
 	 */
 	private SplashSpell getCurrentSpell()
 	{
-		if (currentSession != null && currentSession.getSpell() != null)
+		SplashSession session = sessionManager.getCurrentSession();
+		if (session != null && session.getSpell() != null)
 		{
-			return currentSession.getSpell();
+			return session.getSpell();
 		}
 		return config.selectedSpell();
 	}
@@ -1186,10 +1135,7 @@ public class SplashHelperPlugin extends Plugin
 						if (playerName != null)
 						{
 							playerTracker.addPickpocketer(playerName);
-							if (currentSession != null)
-							{
-								currentSession.addPickpocketer(playerName);
-							}
+							sessionManager.addPickpocketer(playerName);
 						}
 					}
 				}
