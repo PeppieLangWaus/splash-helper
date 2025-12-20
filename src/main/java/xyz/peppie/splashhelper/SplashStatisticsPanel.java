@@ -69,17 +69,27 @@ public class SplashStatisticsPanel extends PluginPanel
         dataPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
         dataPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        // Build overall panel
-        overallPanel.setLayout(new GridLayout(0, 1, 0, 4));
-        overallPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        overallPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()),
-            new EmptyBorder(10, 10, 10, 10)));
+        // Build overall panel with title header
+        JPanel overallContainer = new JPanel();
+        overallContainer.setLayout(new BoxLayout(overallContainer, BoxLayout.Y_AXIS));
+        overallContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        overallContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
 
+        // Overall title with dark background
+        JPanel overallTitlePanel = new JPanel(new BorderLayout());
+        overallTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        overallTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
         JLabel overallTitle = new JLabel("Overall Statistics");
         overallTitle.setForeground(Color.CYAN);
         overallTitle.setFont(FontManager.getRunescapeBoldFont());
-        overallPanel.add(overallTitle);
+        overallTitlePanel.add(overallTitle, BorderLayout.WEST);
+        overallContainer.add(overallTitlePanel);
+
+        // Overall stats content
+        overallPanel.setLayout(new GridLayout(0, 1, 0, 4));
+        overallPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        overallPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        overallContainer.add(overallPanel);
 
         addStatRow(overallPanel, "Sessions:", overallSessionsLabel);
         addStatRow(overallPanel, "Total Time:", overallTimeLabel);
@@ -87,22 +97,32 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(overallPanel, "Total XP:", overallXpLabel);
         addStatRow(overallPanel, "Remaining:", overallRemainingLabel);
         addStatRow(overallPanel, "Status:", overallStatusLabel);
-        dataPanel.add(overallPanel);
+        dataPanel.add(overallContainer);
 
         // Spacer
         dataPanel.add(javax.swing.Box.createVerticalStrut(10));
 
-        // Build current session panel
-        currentPanel.setLayout(new GridLayout(0, 1, 0, 4));
-        currentPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        currentPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()),
-            new EmptyBorder(10, 10, 10, 10)));
+        // Build current session panel with title header
+        JPanel currentContainer = new JPanel();
+        currentContainer.setLayout(new BoxLayout(currentContainer, BoxLayout.Y_AXIS));
+        currentContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        currentContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
 
+        // Current session title with dark background
+        JPanel currentTitlePanel = new JPanel(new BorderLayout());
+        currentTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        currentTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
         JLabel currentTitle = new JLabel("Current Session");
         currentTitle.setForeground(Color.ORANGE);
         currentTitle.setFont(FontManager.getRunescapeBoldFont());
-        currentPanel.add(currentTitle);
+        currentTitlePanel.add(currentTitle, BorderLayout.WEST);
+        currentContainer.add(currentTitlePanel);
+
+        // Current session stats content
+        currentPanel.setLayout(new GridLayout(0, 1, 0, 4));
+        currentPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        currentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        currentContainer.add(currentPanel);
 
         addStatRow(currentPanel, "Player:", playerLabel);
         addStatRow(currentPanel, "Spell:", spellLabel);
@@ -112,14 +132,12 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(currentPanel, "Casts:", castsLabel);
         addStatRow(currentPanel, "XP Gained:", xpGainedLabel);
         addStatRow(currentPanel, "XP/Hour:", xpHourLabel);
-        dataPanel.add(currentPanel);
 
-        // Spacer
-        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
-
-        // Supply tracker box
+        // Supply tracker box attached to current session
         supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
-        dataPanel.add(supplyBox);
+        currentContainer.add(supplyBox);
+
+        dataPanel.add(currentContainer);
 
         // Add panels to card layout
         container.add(errorPanel, ERROR_PANEL);
