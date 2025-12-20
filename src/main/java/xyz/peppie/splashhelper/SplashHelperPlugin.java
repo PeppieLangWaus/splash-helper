@@ -140,6 +140,14 @@ public class SplashHelperPlugin extends Plugin
 		return sessionManager.getCurrentSession();
 	}
 
+	/**
+	 * Get the session to display in UI - current if active, otherwise last finalized.
+	 */
+	public SplashSession getDisplayableSession()
+	{
+		return sessionManager.getDisplayableSession();
+	}
+
 	public List<SplashSession> getSessionHistory()
 	{
 		return sessionManager.getSessionHistory();
@@ -993,6 +1001,10 @@ public class SplashHelperPlugin extends Plugin
 		sessionManager.finalizeSession();
 		isSplashing = false;
 		lastStatsSample = null;
+		
+		// End the timer when session ends
+		timerEnd = null;
+		hasNotified = false;
 	}
 
 	private void sampleSessionStatistics()

@@ -156,12 +156,14 @@ public class SplashStatisticsPanel extends PluginPanel
         }
 
         SwingUtilities.invokeLater(() -> {
-            SplashSession session = plugin.getCurrentSession();
+            SplashSession currentSession = plugin.getCurrentSession();
+            SplashSession displaySession = plugin.getDisplayableSession();
             java.util.List<SplashSession> history = plugin.getSessionHistory();
 
-            boolean hasActiveSession = session != null && session.isActive();
+            boolean hasActiveSession = currentSession != null && currentSession.isActive();
+            boolean hasDisplayableSession = displaySession != null;
             boolean hasHistory = !history.isEmpty();
-            boolean hasData = hasActiveSession || hasHistory;
+            boolean hasData = hasActiveSession || hasDisplayableSession || hasHistory;
 
             if (!hasData)
             {
@@ -180,9 +182,9 @@ public class SplashStatisticsPanel extends PluginPanel
 
             if (hasActiveSession)
             {
-                totalSeconds += session.getSessionDurationSeconds();
-                totalCasts += session.getSpellsCast();
-                totalXp += session.getMagicXpGained();
+                totalSeconds += currentSession.getSessionDurationSeconds();
+                totalCasts += currentSession.getSpellsCast();
+                totalXp += currentSession.getMagicXpGained();
             }
 
             // Update overall stats
@@ -227,18 +229,18 @@ public class SplashStatisticsPanel extends PluginPanel
                 overallStatusLabel.setForeground(Color.GRAY);
             }
 
-            // Update current session
-            if (hasActiveSession)
+            // Update current/last session display
+            if (hasDisplayableSession)
             {
                 currentPanel.setVisible(true);
                 supplyBox.setVisible(true);
 
-                playerLabel.setText(session.getPlayerName() != null ? session.getPlayerName() : "-");
+                playerLabel.setText(displaySession.getPlayerName() != null ? displaySession.getPlayerName() : "-");
 
-                if (session.getSpell() != null)
+                if (displaySession.getSpell() != null)
                 {
-                    spellLabel.setText(session.getSpell().getName());
-                    spellLabel.setForeground(Color.YELLOW);
+                    spellLabel.setText(displaySession.getSpell().getName());
+                    spellLabel.setForeground(hasActiveSession ? Color.YELLOW : Color.GRAY);
                 }
                 else
                 {
@@ -246,12 +248,12 @@ public class SplashStatisticsPanel extends PluginPanel
                     spellLabel.setForeground(Color.GRAY);
                 }
 
-                worldLabel.setText(String.valueOf(session.getWorld()));
+                worldLabel.setText(String.valueOf(displaySession.getWorld()));
 
-                if (session.isStickyKnight())
+                if (displaySession.isStickyKnight())
                 {
                     stickyLabel.setText("STICKY");
-                    stickyLabel.setForeground(Color.GREEN);
+                    stickyLabel.setForeground(hasActiveSession ? Color.GREEN : Color.GRAY);
                 }
                 else
                 {
@@ -259,18 +261,18 @@ public class SplashStatisticsPanel extends PluginPanel
                     stickyLabel.setForeground(Color.WHITE);
                 }
 
-                timeLabel.setText(formatDuration(session.getSessionDurationSeconds()));
-                timeLabel.setForeground(Color.GREEN);
+                timeLabel.setText(formatDuration(displaySession.getSessionDurationSeconds()));
+                timeLabel.setForeground(hasActiveSession ? Color.GREEN : Color.GRAY);
 
-                castsLabel.setText(String.valueOf(session.getSpellsCast()));
+                castsLabel.setText(String.valueOf(displaySession.getSpellsCast()));
 
-                xpGainedLabel.setText(formatNumber(session.getMagicXpGained()));
-                xpHourLabel.setText(formatNumber((int) session.getXpPerHour()) + "/hr");
-                xpHourLabel.setForeground(Color.CYAN);
+                xpGainedLabel.setText(formatNumber(displaySession.getMagicXpGained()));
+                xpHourLabel.setText(formatNumber((int) displaySession.getXpPerHour()) + "/hr");
+                xpHourLabel.setForeground(hasActiveSession ? Color.CYAN : Color.GRAY);
 
                 // Update supply box with actual rune usage (combo runes, excludes infinite)
                 java.util.List<int[]> actualRuneUsage = plugin.getCachedActualRuneUsage();
-                supplyBox.buildItems(actualRuneUsage, session.getSpellsCast());
+                supplyBox.buildItems(actualRuneUsage, displaySession.getSpellsCast());
             }
             else
             {

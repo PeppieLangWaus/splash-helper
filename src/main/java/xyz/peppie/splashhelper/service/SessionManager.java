@@ -29,6 +29,9 @@ public class SessionManager
 	private SplashSession currentSession = null;
 
 	@Getter
+	private SplashSession lastFinalizedSession = null;
+
+	@Getter
 	private final List<SplashSession> sessionHistory = new ArrayList<>();
 
 	private Instant lastCastTime = null;
@@ -76,6 +79,7 @@ public class SessionManager
 		{
 			currentSession.setEndTime(Instant.now());
 			sessionHistory.add(currentSession);
+			lastFinalizedSession = currentSession;
 			log.info("Finalized session: {} casts, {} XP gained",
 				currentSession.getSpellsCast(), currentSession.getMagicXpGained());
 		}
@@ -162,6 +166,18 @@ public class SessionManager
 	public boolean hasActiveSession()
 	{
 		return currentSession != null && currentSession.isActive();
+	}
+
+	/**
+	 * Get the session to display in UI - current if active, otherwise last finalized.
+	 */
+	public SplashSession getDisplayableSession()
+	{
+		if (currentSession != null)
+		{
+			return currentSession;
+		}
+		return lastFinalizedSession;
 	}
 
 	/**
