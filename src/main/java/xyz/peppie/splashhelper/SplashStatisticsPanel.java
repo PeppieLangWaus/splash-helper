@@ -187,14 +187,16 @@ public class SplashStatisticsPanel extends PluginPanel
             }
             
             SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest);
-            historyBoxes.add(historyBox);
+            historyBoxes.add(0, historyBox); // Add to front of list
             
-            // Add spacer before each history box (except the first)
-            if (i > 0 || lastHistorySize > 0)
+            // Add new session at the top (index 0)
+            historyContainer.add(historyBox, 0);
+            
+            // Add spacer after the new box (which is now at index 0)
+            if (historyContainer.getComponentCount() > 1)
             {
-                historyContainer.add(javax.swing.Box.createVerticalStrut(10));
+                historyContainer.add(javax.swing.Box.createVerticalStrut(10), 1);
             }
-            historyContainer.add(historyBox);
         }
 
         lastHistorySize = history.size();
