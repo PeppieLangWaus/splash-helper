@@ -49,7 +49,7 @@ public class SplashStatisticsPanel extends PluginPanel
     private final JLabel xpHourLabel = new JLabel("0");
 
     // Supply tracker
-    private final SplashSupplyTrackerBox supplyBox;
+    private SplashSupplyTrackerBox supplyBox;
 
     public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager)
     {
@@ -69,13 +69,27 @@ public class SplashStatisticsPanel extends PluginPanel
         dataPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
         dataPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        // Build overall panel with title header
+        dataPanel.add(buildOverallPanel());
+        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
+        dataPanel.add(buildCurrentSessionPanel(itemManager));
+
+        // Add panels to card layout
+        container.add(errorPanel, ERROR_PANEL);
+        container.add(dataPanel, DATA_PANEL);
+
+        add(container, BorderLayout.NORTH);
+
+        // Show error panel initially
+        cardLayout.show(container, ERROR_PANEL);
+    }
+
+    private JPanel buildOverallPanel()
+    {
         JPanel overallContainer = new JPanel();
         overallContainer.setLayout(new BoxLayout(overallContainer, BoxLayout.Y_AXIS));
         overallContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         overallContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
 
-        // Overall title with dark background
         JPanel overallTitlePanel = new JPanel(new BorderLayout());
         overallTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
         overallTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
@@ -85,7 +99,6 @@ public class SplashStatisticsPanel extends PluginPanel
         overallTitlePanel.add(overallTitle, BorderLayout.WEST);
         overallContainer.add(overallTitlePanel);
 
-        // Overall stats content
         overallPanel.setLayout(new GridLayout(0, 1, 0, 4));
         overallPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         overallPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -97,18 +110,17 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(overallPanel, "Total XP:", overallXpLabel);
         addStatRow(overallPanel, "Remaining:", overallRemainingLabel);
         addStatRow(overallPanel, "Status:", overallStatusLabel);
-        dataPanel.add(overallContainer);
 
-        // Spacer
-        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
+        return overallContainer;
+    }
 
-        // Build current session panel with title header
+    private JPanel buildCurrentSessionPanel(ItemManager itemManager)
+    {
         JPanel currentContainer = new JPanel();
         currentContainer.setLayout(new BoxLayout(currentContainer, BoxLayout.Y_AXIS));
         currentContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         currentContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
 
-        // Current session title with dark background
         JPanel currentTitlePanel = new JPanel(new BorderLayout());
         currentTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
         currentTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
@@ -118,7 +130,6 @@ public class SplashStatisticsPanel extends PluginPanel
         currentTitlePanel.add(currentTitle, BorderLayout.WEST);
         currentContainer.add(currentTitlePanel);
 
-        // Current session stats content
         currentPanel.setLayout(new GridLayout(0, 1, 0, 4));
         currentPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         currentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -133,20 +144,10 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(currentPanel, "XP Gained:", xpGainedLabel);
         addStatRow(currentPanel, "XP/Hour:", xpHourLabel);
 
-        // Supply tracker box attached to current session
         supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
         currentContainer.add(supplyBox);
 
-        dataPanel.add(currentContainer);
-
-        // Add panels to card layout
-        container.add(errorPanel, ERROR_PANEL);
-        container.add(dataPanel, DATA_PANEL);
-
-        add(container, BorderLayout.NORTH);
-
-        // Show error panel initially
-        cardLayout.show(container, ERROR_PANEL);
+        return currentContainer;
     }
 
     private void addStatRow(JPanel panel, String labelText, JLabel valueLabel)

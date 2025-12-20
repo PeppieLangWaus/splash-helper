@@ -31,7 +31,7 @@ public class SplashSupplyTrackerBox extends JPanel
 		this.itemManager = itemManager;
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-		setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		setBackground(ColorScheme.DARK_GRAY_COLOR);
 
 		boxTitle.setLayout(new BorderLayout());
 		boxTitle.setBorder(new EmptyBorder(7, 7, 7, 7));
