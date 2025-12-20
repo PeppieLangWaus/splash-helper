@@ -34,16 +34,16 @@ public class SplashSupplyTrackerBox extends JPanel
 		setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
 		boxTitle.setLayout(new BorderLayout());
-		boxTitle.setBorder(new EmptyBorder(7, 10, 7, 10));
-		boxTitle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		boxTitle.setBorder(new EmptyBorder(7, 7, 7, 7));
+		boxTitle.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
 
 		titleLabel.setText(title);
-		titleLabel.setFont(FontManager.getRunescapeBoldFont());
-		titleLabel.setForeground(Color.ORANGE);
+		titleLabel.setFont(FontManager.getRunescapeSmallFont());
+		titleLabel.setForeground(Color.WHITE);
 		boxTitle.add(titleLabel, BorderLayout.WEST);
 
 		itemContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		itemContainer.setBorder(new EmptyBorder(10, 10, 10, 10));
+		itemContainer.setBorder(new EmptyBorder(5, 5, 5, 5));
 
 		add(boxTitle);
 		add(itemContainer);
@@ -83,7 +83,7 @@ public class SplashSupplyTrackerBox extends JPanel
 			int totalUsed = spellsCast * amountPerCast;
 			
 			JPanel slotContainer = new JPanel();
-			slotContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+			slotContainer.setBackground(ColorScheme.LIGHT_GRAY_COLOR);
 			slotContainer.setLayout(new BorderLayout());
 			slotContainer.setPreferredSize(new Dimension(ITEM_SIZE, ITEM_SIZE));
 
@@ -104,7 +104,7 @@ public class SplashSupplyTrackerBox extends JPanel
 		for (int i = 0; i < remaining; i++)
 		{
 			JPanel emptySlot = new JPanel();
-			emptySlot.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+			emptySlot.setBackground(ColorScheme.LIGHT_GRAY_COLOR);
 			emptySlot.setPreferredSize(new Dimension(ITEM_SIZE, ITEM_SIZE));
 			itemContainer.add(emptySlot);
 		}
