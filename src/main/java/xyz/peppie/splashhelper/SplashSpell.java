@@ -94,6 +94,26 @@ public enum SplashSpell
 		return null;
 	}
 
+	/**
+	 * Detect the spell from the XP gained.
+	 * Each spell has a unique base XP value, so we can identify it from the XP drop.
+	 */
+	public static SplashSpell fromXpDrop(int xpGained)
+	{
+		for (SplashSpell spell : values())
+		{
+			// XP is stored as integer, baseXp is double (e.g., 5.5 -> 5 or 6 XP)
+			int expectedXp = (int) spell.getBaseXp();
+			int expectedXpRounded = (int) Math.round(spell.getBaseXp());
+			
+			if (xpGained == expectedXp || xpGained == expectedXpRounded)
+			{
+				return spell;
+			}
+		}
+		return null;
+	}
+
 	@Getter
 	@RequiredArgsConstructor
 	public static class RuneCost

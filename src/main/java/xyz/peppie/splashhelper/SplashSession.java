@@ -13,8 +13,8 @@ public class SplashSession
 {
 	// Static fields (set once at session start)
 	private final String playerName;
-	private final SplashSpell spell;
-	private final int runeCostPerCast;
+	private SplashSpell spell;
+	private int runeCostPerCast;
 	private final Instant startTime;
 	private final Instant logoutTime;
 	private final int world;
@@ -55,6 +55,12 @@ public class SplashSession
 		this.currentMagicXp = startMagicXp;
 	}
 
+	public void setSpell(SplashSpell newSpell)
+	{
+		this.spell = newSpell;
+		this.runeCostPerCast = newSpell != null ? newSpell.getTotalRuneCost() : 0;
+	}
+
 	public long getSessionDurationSeconds()
 	{
 		Instant end = endTime != null ? endTime : Instant.now();
@@ -83,11 +89,8 @@ public class SplashSession
 
 	public int getRemainingCasts()
 	{
-		if (runeCostPerCast <= 0)
-		{
-			return 0;
-		}
-		return currentRuneCount / runeCostPerCast;
+		// currentRuneCount is already the number of possible casts (from countLimitingRunes)
+		return currentRuneCount;
 	}
 
 	public void addPickpocketer(String playerName)

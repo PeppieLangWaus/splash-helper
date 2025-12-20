@@ -35,7 +35,6 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.register('shadowJar', Jar) {
-	dependsOn configurations.testRuntimeClasspath
 	manifest {
 		attributes('Main-Class': 'xyz.peppie.splashhelper.SplashHelperPluginTest', 'Multi-Release': true)
 	}
@@ -44,7 +43,8 @@ tasks.register('shadowJar', Jar) {
 	from sourceSets.main.output
 	from sourceSets.test.output
 	from {
-		configurations.testRuntimeClasspath.collect { file ->
+		// Resolve dependencies but skip files that don't exist
+		configurations.testRuntimeClasspath.resolvedConfiguration.lenientConfiguration.files.collect { file ->
 			file.isDirectory() ? file : zipTree(file)
 		}
 	}
@@ -54,6 +54,7 @@ tasks.register('shadowJar', Jar) {
 	exclude 'META-INF/*.DSA'
 	exclude 'META-INF/*.RSA'
 	exclude '**/module-info.class'
+	exclude '**/lwjgl*natives-linux-arm64.jar'
 
 	group = BasePlugin.BUILD_GROUP
 	archiveClassifier.set('shadow')

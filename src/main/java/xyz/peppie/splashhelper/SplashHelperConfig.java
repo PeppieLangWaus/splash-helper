@@ -206,10 +206,23 @@ public interface SplashHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "autoDetectSpell",
+		name = "Auto-detect Spell",
+		description = "Automatically detect the spell being cast based on XP gained. Disable to use manual selection below.",
+		section = statisticsSection,
+		position = 10
+	)
+	default boolean autoDetectSpell()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "selectedSpell",
 		name = "Splash Spell",
-		description = "Select the spell you are using for splashing",
-		section = statisticsSection
+		description = "Select the spell you are using for splashing (only used when auto-detect is disabled)",
+		section = statisticsSection,
+		position = 11
 	)
 	default SplashSpell selectedSpell()
 	{
