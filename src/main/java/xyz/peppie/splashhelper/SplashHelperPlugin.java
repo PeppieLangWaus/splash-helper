@@ -6,10 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.awt.TrayIcon;
 import java.awt.Color;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -17,9 +14,6 @@ import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
-import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
@@ -53,6 +47,10 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
+import xyz.peppie.splashhelper.service.KnightDetector;
+import xyz.peppie.splashhelper.service.PlayerTracker;
+import xyz.peppie.splashhelper.service.RuneCalculator;
+import xyz.peppie.splashhelper.service.SessionManager;
 
 @Slf4j
 @PluginDescriptor(
@@ -85,6 +83,19 @@ public class SplashHelperPlugin extends Plugin
 
 	@Inject
 	private ItemManager itemManager;
+
+	// Services
+	@Inject
+	private RuneCalculator runeCalculator;
+
+	@Inject
+	private SessionManager sessionManager;
+
+	@Inject
+	private KnightDetector knightDetector;
+
+	@Inject
+	private PlayerTracker playerTracker;
 
 	// Statistics panel
 	private SplashStatisticsPanel statisticsPanel;
@@ -119,19 +130,21 @@ public class SplashHelperPlugin extends Plugin
 	private static final int BOUNDARY_DEBOUNCE_TICKS = 5;
 	private boolean notificationsMuted = false;
 
-	// Session tracking
-	@Getter
-	private SplashSession currentSession = null;
-	@Getter
-	private final List<SplashSession> sessionHistory = new ArrayList<>();
+	// Session tracking delegated to SessionManager service
 	private Instant lastStatsSample = null;
 	private boolean isSplashing = false;
-	
-	// Cast tracking via XP drops
-	private int lastMagicXp = -1;
-	private Instant lastCastTime = null;
-	private static final int SESSION_TIMEOUT_SECONDS = 10;
-	
+
+	// Session delegation methods
+	public SplashSession getCurrentSession()
+	{
+		return sessionManager.getCurrentSession();
+	}
+
+	public List<SplashSession> getSessionHistory()
+	{
+		return sessionManager.getSessionHistory();
+	}
+
 	// Cached values for UI (updated on client thread)
 	@Getter
 	private volatile int cachedRemainingCasts = 0;
@@ -140,10 +153,12 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private volatile java.util.List<int[]> cachedActualRuneUsage = new java.util.ArrayList<>();
 
-	// Player tracking for pickpocketers
-	private final Set<String> pickpocketers = new HashSet<>();
-	@Getter
-	private int currentPickpocketerCount = 0;
+	// Player tracking delegated to PlayerTracker service
+	public int getCurrentPickpocketerCount()
+	{
+		SplashSession session = sessionManager.getCurrentSession();
+		return session != null ? session.getPickpocketerCount() : 0;
+	}
 
 	// Visual notification state
 	@Getter
@@ -193,10 +208,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		// Finalize any active session
-		if (currentSession != null && currentSession.isActive())
-		{
-			finalizeSession();
-		}
+		sessionManager.finalizeSession();
 		
 		timerEnd = null;
 		hasNotified = false;
@@ -212,11 +224,9 @@ public class SplashHelperPlugin extends Plugin
 		hasEscaped = false;
 		boundaryTickCounter = 0;
 		notificationsMuted = false;
-		currentSession = null;
 		lastStatsSample = null;
 		isSplashing = false;
-		pickpocketers.clear();
-		currentPickpocketerCount = 0;
+		playerTracker.reset();
 		showVisualNotification = false;
 		visualNotificationEnd = null;
 	}
@@ -226,9 +236,6 @@ public class SplashHelperPlugin extends Plugin
 	{
 		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
 		{
-			// Initialize magic XP tracking
-			lastMagicXp = client.getSkillExperience(Skill.MAGIC);
-			
 			if (config.enableWelcomeMessage())
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Splash Helper is active!", null);
@@ -244,65 +251,56 @@ public class SplashHelperPlugin extends Plugin
 			return;
 		}
 
-		int currentXp = event.getXp();
-		
-		// Initialize on first call
-		if (lastMagicXp < 0)
+		if (!sessionManager.hasActiveSession())
 		{
-			lastMagicXp = currentXp;
 			return;
 		}
 
-		int xpGained = currentXp - lastMagicXp;
-		lastMagicXp = currentXp;
-
-		// Only count positive XP gains (spell cast)
-		if (xpGained > 0 && currentSession != null && currentSession.isActive())
+		int currentXp = event.getXp();
+		SplashSession session = sessionManager.getCurrentSession();
+		
+		// Detect or use configured spell
+		SplashSpell spell = null;
+		if (config.autoDetectSpell())
 		{
-			// Detect or use configured spell
-			SplashSpell detectedSpell = null;
-			if (config.autoDetectSpell())
+			// Try to detect from XP - need to calculate gain
+			int lastXp = session.getCurrentMagicXp();
+			if (lastXp > 0)
 			{
-				detectedSpell = SplashSpell.fromXpDrop(xpGained);
-				if (detectedSpell != null && currentSession.getSpell() != detectedSpell)
+				int xpGained = currentXp - lastXp;
+				if (xpGained > 0)
 				{
-					currentSession.setSpell(detectedSpell);
-					log.debug("Auto-detected spell: {} from {} XP", detectedSpell.getName(), xpGained);
+					spell = SplashSpell.fromXpDrop(xpGained);
+					if (spell != null)
+					{
+						sessionManager.updateSpell(spell);
+						log.debug("Auto-detected spell: {} from {} XP", spell.getName(), xpGained);
+					}
 				}
 			}
-			else
+			if (spell == null)
 			{
-				// Use manually configured spell
-				SplashSpell configSpell = config.selectedSpell();
-				if (currentSession.getSpell() != configSpell)
-				{
-					currentSession.setSpell(configSpell);
-				}
+				spell = session.getSpell();
 			}
-			
-			// Increment cast counter
-			currentSession.incrementSpellsCast();
-			
-			// Update XP
-			currentSession.setCurrentMagicXp(currentXp);
-			
-			// Update rune count
-			SplashSpell spell = currentSession.getSpell();
-			if (spell != null)
-			{
-				currentSession.setCurrentRuneCount(countLimitingRunes(spell));
-			}
-			
-			// Record last cast time for timeout
-			lastCastTime = Instant.now();
-			
+		}
+		else
+		{
+			spell = config.selectedSpell();
+			sessionManager.updateSpell(spell);
+		}
+
+		// Record the cast via SessionManager
+		int xpGained = sessionManager.recordCast(currentXp, spell);
+		
+		if (xpGained > 0)
+		{
 			// Update panel
 			if (statisticsPanel != null)
 			{
 				statisticsPanel.updatePanel();
 			}
 			
-			log.debug("Spell cast detected: +{} XP, total casts: {}", xpGained, currentSession.getSpellsCast());
+			log.debug("Spell cast detected: +{} XP, total casts: {}", xpGained, session.getSpellsCast());
 		}
 	}
 
@@ -434,10 +432,7 @@ public class SplashHelperPlugin extends Plugin
 						if ((wasOnTile1 && onTile2) || (wasOnTile2 && onTile1))
 						{
 							movementCount++;
-							if (currentSession != null)
-							{
-								currentSession.incrementKnightMovements();
-							}
+							sessionManager.recordKnightMovement();
 						}
 						
 						lastNpcPosition = currentPosition;
@@ -472,14 +467,12 @@ public class SplashHelperPlugin extends Plugin
 			cachedActualRuneUsage = getActualRuneUsage();
 			
 			Instant now = Instant.now();
-			if (currentSession != null && currentSession.isActive())
+			if (sessionManager.hasActiveSession())
 			{
-				// Check for session timeout (no cast in last 10 seconds)
-				if (lastCastTime != null && 
-					Duration.between(lastCastTime, now).getSeconds() >= SESSION_TIMEOUT_SECONDS)
+				// Check for session timeout via service
+				if (sessionManager.checkSessionTimeout())
 				{
-					log.info("Session timeout - no cast in {} seconds", SESSION_TIMEOUT_SECONDS);
-					finalizeSession();
+					isSplashing = false;
 				}
 				else if (lastStatsSample == null || 
 					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
@@ -847,7 +840,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		// Start session when timer starts (player engaged with target)
-		if (config.enableStatistics() && (currentSession == null || !currentSession.isActive()))
+		if (config.enableStatistics() && !sessionManager.hasActiveSession())
 		{
 			startSession(config.selectedSpell());
 		}
@@ -974,10 +967,8 @@ public class SplashHelperPlugin extends Plugin
 
 	private void startSession(SplashSpell spell)
 	{
-		if (currentSession != null && currentSession.isActive())
-		{
-			finalizeSession();
-		}
+		// Finalize any existing session first
+		sessionManager.finalizeSession();
 
 		Player localPlayer = client.getLocalPlayer();
 		if (localPlayer == null)
@@ -987,27 +978,9 @@ public class SplashHelperPlugin extends Plugin
 
 		String playerName = localPlayer.getName();
 		int world = client.getWorld();
-		int startMagicXp = client.getSkillExperience(Skill.MAGIC);
-		
-		// Initialize cast tracking
-		lastMagicXp = startMagicXp;
-		lastCastTime = Instant.now();
-		
-		// Check if knight is sticky (female model - NPC ID check would be needed)
 		boolean stickyKnight = isStickyKnight();
 
-		currentSession = new SplashSession(
-			playerName,
-			spell,
-			timerEnd,
-			world,
-			stickyKnight,
-			startMagicXp
-		);
-
-		// Set initial rune count
-		currentSession.setStartingRuneCount(countLimitingRunes(spell));
-		currentSession.setCurrentRuneCount(currentSession.getStartingRuneCount());
+		sessionManager.startSession(playerName, spell, timerEnd, world, stickyKnight);
 
 		isSplashing = true;
 		lastStatsSample = Instant.now();
@@ -1017,51 +990,38 @@ public class SplashHelperPlugin extends Plugin
 
 	private void finalizeSession()
 	{
-		if (currentSession == null)
-		{
-			return;
-		}
-
-		currentSession.finalizeSession();
-		sessionHistory.add(currentSession);
-		
-		log.info("Session finalized: {} casts, {} XP gained, {}s duration",
-			currentSession.getSpellsCast(),
-			currentSession.getMagicXpGained(),
-			currentSession.getSessionDurationSeconds());
-
-		currentSession = null;
+		sessionManager.finalizeSession();
 		isSplashing = false;
 		lastStatsSample = null;
 	}
 
 	private void sampleSessionStatistics()
 	{
-		if (currentSession == null || !currentSession.isActive())
+		SplashSession session = sessionManager.getCurrentSession();
+		if (session == null || !session.isActive())
 		{
 			return;
 		}
 
 		// Update magic XP
-		currentSession.setCurrentMagicXp(client.getSkillExperience(Skill.MAGIC));
+		session.setCurrentMagicXp(client.getSkillExperience(Skill.MAGIC));
 
 		// Update rune count
-		SplashSpell spell = currentSession.getSpell();
+		SplashSpell spell = session.getSpell();
 		if (spell != null)
 		{
-			currentSession.setCurrentRuneCount(countLimitingRunes(spell));
+			session.setCurrentRuneCount(countLimitingRunes(spell));
 		}
 
 		// Count nearby players
 		int nearbyPlayers = countNearbyPlayers(config.playerCountRadius());
-		currentSession.addPlayerCountSample(nearbyPlayers);
+		sessionManager.recordPlayerCountSample(nearbyPlayers);
 
-		// Add pickpocketers to session
-		for (String pickpocketer : pickpocketers)
+		// Add pickpocketers to session from tracker
+		for (String pickpocketer : playerTracker.getPickpocketers())
 		{
-			currentSession.addPickpocketer(pickpocketer);
+			sessionManager.addPickpocketer(pickpocketer);
 		}
-		currentPickpocketerCount = currentSession.getPickpocketerCount();
 	}
 
 	private int countNearbyPlayers(int radius)
@@ -1089,445 +1049,62 @@ public class SplashHelperPlugin extends Plugin
 		return count;
 	}
 
-	// Combination rune IDs
-	private static final int MIST_RUNE = 4695;   // Air + Water
-	private static final int DUST_RUNE = 4696;   // Air + Earth
-	private static final int MUD_RUNE = 4698;    // Water + Earth
-	private static final int SMOKE_RUNE = 4697;  // Air + Fire
-	private static final int STEAM_RUNE = 4694;  // Water + Fire
-	private static final int LAVA_RUNE = 4699;   // Earth + Fire
-
-	// Rune pouch IDs
-	private static final int RUNE_POUCH = 12791;
-	private static final int RUNE_POUCH_DIVINE = 27281;
-
 	/**
 	 * Get remaining casts for the current spell (from session or config).
-	 * Accounts for combination runes, rune pouch, and equipped staves.
+	 * Delegates to RuneCalculator service.
 	 */
 	public int getRemainingCastsForCurrentSpell()
 	{
-		SplashSpell spell = null;
-		
-		// Try to get spell from current session first
-		if (currentSession != null && currentSession.getSpell() != null)
-		{
-			spell = currentSession.getSpell();
-		}
-		else
-		{
-			// Fall back to config spell
-			spell = config.selectedSpell();
-		}
-		
-		return countLimitingRunesAdvanced(spell);
-	}
-
-	/**
-	 * Count limiting runes with support for combination runes and rune pouch.
-	 */
-	private int countLimitingRunesAdvanced(SplashSpell spell)
-	{
-		if (spell == null)
-		{
-			return 0;
-		}
-
-		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-		if (inventory == null)
-		{
-			return 0;
-		}
-
-		// Check equipment for staves that provide infinite runes
-		java.util.Set<Integer> infiniteRunes = getInfiniteRunesFromEquipment();
-
-		// Build a map of rune type -> count (including combo runes and pouch)
-		java.util.Map<Integer, Integer> runeCounts = new java.util.HashMap<>();
-		
-		// Count inventory runes
-		for (Item item : inventory.getItems())
-		{
-			int id = item.getId();
-			int qty = item.getQuantity();
-			
-			// Regular runes
-			if (isBasicRune(id))
-			{
-				runeCounts.merge(id, qty, Integer::sum);
-			}
-			
-			// Combination runes - add to both element types
-			addCombinationRuneCounts(runeCounts, id, qty);
-			
-			// Check for rune pouch
-			if (id == RUNE_POUCH || id == RUNE_POUCH_DIVINE)
-			{
-				addRunePouchCounts(runeCounts);
-			}
-		}
-
-		int minCasts = Integer.MAX_VALUE;
-		
-		for (SplashSpell.RuneCost cost : spell.getRuneCosts())
-		{
-			// If staff provides infinite runes of this type, skip it
-			if (infiniteRunes.contains(cost.getItemId()))
-			{
-				continue;
-			}
-			
-			int runeCount = runeCounts.getOrDefault(cost.getItemId(), 0);
-			int castsWithThisRune = runeCount / cost.getAmount();
-			minCasts = Math.min(minCasts, castsWithThisRune);
-		}
-
-		return minCasts == Integer.MAX_VALUE ? 0 : minCasts;
-	}
-
-	private boolean isBasicRune(int id)
-	{
-		return id == SplashSpell.ItemID.AIR_RUNE ||
-			id == SplashSpell.ItemID.WATER_RUNE ||
-			id == SplashSpell.ItemID.EARTH_RUNE ||
-			id == SplashSpell.ItemID.FIRE_RUNE ||
-			id == SplashSpell.ItemID.MIND_RUNE ||
-			id == SplashSpell.ItemID.BODY_RUNE ||
-			id == SplashSpell.ItemID.CHAOS_RUNE ||
-			id == SplashSpell.ItemID.DEATH_RUNE ||
-			id == SplashSpell.ItemID.BLOOD_RUNE ||
-			id == SplashSpell.ItemID.WRATH_RUNE;
+		return runeCalculator.getRemainingCasts(getCurrentSpell());
 	}
 
 	/**
 	 * Get the actual runes being consumed for the current spell.
-	 * Detects combination runes in inventory and excludes infinite runes from staves.
-	 * Returns list of int[2] arrays: [itemId, amountPerCast]
+	 * Delegates to RuneCalculator service.
 	 */
 	private java.util.List<int[]> getActualRuneUsage()
 	{
-		java.util.List<int[]> result = new java.util.ArrayList<>();
-		
-		SplashSpell spell = null;
-		if (currentSession != null && currentSession.getSpell() != null)
-		{
-			spell = currentSession.getSpell();
-		}
-		else
-		{
-			spell = config.selectedSpell();
-		}
-		
-		if (spell == null)
-		{
-			return result;
-		}
-
-		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-		if (inventory == null)
-		{
-			return result;
-		}
-
-		java.util.Set<Integer> infiniteRunes = getInfiniteRunesFromEquipment();
-		
-		// Track which combo runes we have in inventory
-		java.util.Map<Integer, Integer> comboRunesInInventory = new java.util.HashMap<>();
-		for (Item item : inventory.getItems())
-		{
-			int id = item.getId();
-			if (isCombinationRune(id))
-			{
-				comboRunesInInventory.put(id, item.getQuantity());
-			}
-		}
-		
-		// Also check rune pouch for combo runes
-		final int[] RUNE_POUCH_RUNE_VARBITS = {29, 1622, 1623};
-		final int[] RUNE_POUCH_AMOUNT_VARBITS = {1624, 1625, 1626};
-		for (int i = 0; i < 3; i++)
-		{
-			int runeId = runeIdFromVarbit(client.getVarbitValue(RUNE_POUCH_RUNE_VARBITS[i]));
-			int amount = client.getVarbitValue(RUNE_POUCH_AMOUNT_VARBITS[i]);
-			if (runeId > 0 && amount > 0 && isCombinationRune(runeId))
-			{
-				comboRunesInInventory.merge(runeId, amount, Integer::sum);
-			}
-		}
-		
-		// For each rune cost, determine actual rune being used
-		for (SplashSpell.RuneCost cost : spell.getRuneCosts())
-		{
-			int requiredRuneId = cost.getItemId();
-			
-			// Skip if staff provides this rune infinitely
-			if (infiniteRunes.contains(requiredRuneId))
-			{
-				continue;
-			}
-			
-			// Check if a combination rune provides this element
-			int comboRuneId = findCombinationRuneFor(requiredRuneId, comboRunesInInventory.keySet());
-			if (comboRuneId > 0)
-			{
-				result.add(new int[]{comboRuneId, cost.getAmount()});
-			}
-			else
-			{
-				// Use regular rune
-				result.add(new int[]{requiredRuneId, cost.getAmount()});
-			}
-		}
-		
-		// Deduplicate combo runes (if same combo rune provides multiple elements)
-		return deduplicateRuneUsage(result);
+		return runeCalculator.getActualRuneUsage(getCurrentSpell());
 	}
 
-	private boolean isCombinationRune(int id)
-	{
-		return id == MIST_RUNE || id == DUST_RUNE || id == MUD_RUNE ||
-			id == SMOKE_RUNE || id == STEAM_RUNE || id == LAVA_RUNE;
-	}
-
-	private int findCombinationRuneFor(int elementRuneId, java.util.Set<Integer> availableComboRunes)
-	{
-		for (int comboId : availableComboRunes)
-		{
-			if (combinationRuneProvides(comboId, elementRuneId))
-			{
-				return comboId;
-			}
-		}
-		return -1;
-	}
-
-	private boolean combinationRuneProvides(int comboRuneId, int elementRuneId)
-	{
-		switch (comboRuneId)
-		{
-			case MIST_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.WATER_RUNE;
-			case DUST_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.EARTH_RUNE;
-			case MUD_RUNE:
-				return elementRuneId == SplashSpell.ItemID.WATER_RUNE || elementRuneId == SplashSpell.ItemID.EARTH_RUNE;
-			case SMOKE_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			case STEAM_RUNE:
-				return elementRuneId == SplashSpell.ItemID.WATER_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			case LAVA_RUNE:
-				return elementRuneId == SplashSpell.ItemID.EARTH_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			default:
-				return false;
-		}
-	}
-
-	private java.util.List<int[]> deduplicateRuneUsage(java.util.List<int[]> runeUsage)
-	{
-		// If same rune appears multiple times (combo rune providing 2 elements), keep only one entry
-		java.util.Map<Integer, Integer> seen = new java.util.LinkedHashMap<>();
-		for (int[] entry : runeUsage)
-		{
-			int itemId = entry[0];
-			int amount = entry[1];
-			// For combo runes, they provide both elements per rune, so we only count once
-			if (!seen.containsKey(itemId))
-			{
-				seen.put(itemId, amount);
-			}
-		}
-		
-		java.util.List<int[]> result = new java.util.ArrayList<>();
-		for (java.util.Map.Entry<Integer, Integer> entry : seen.entrySet())
-		{
-			result.add(new int[]{entry.getKey(), entry.getValue()});
-		}
-		return result;
-	}
-
-	private void addCombinationRuneCounts(java.util.Map<Integer, Integer> runeCounts, int itemId, int quantity)
-	{
-		switch (itemId)
-		{
-			case MIST_RUNE: // Air + Water
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				break;
-			case DUST_RUNE: // Air + Earth
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				break;
-			case MUD_RUNE: // Water + Earth
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				break;
-			case SMOKE_RUNE: // Air + Fire
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-			case STEAM_RUNE: // Water + Fire
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-			case LAVA_RUNE: // Earth + Fire
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-		}
-	}
-
-	private void addRunePouchCounts(java.util.Map<Integer, Integer> runeCounts)
-	{
-		// Rune pouch contents are stored in varbit values
-		// Varbit IDs for rune pouch slots
-		final int[] RUNE_POUCH_RUNE_VARBITS = {29, 1622, 1623};
-		final int[] RUNE_POUCH_AMOUNT_VARBITS = {1624, 1625, 1626};
-		
-		for (int i = 0; i < 3; i++)
-		{
-			int runeId = runeIdFromVarbit(client.getVarbitValue(RUNE_POUCH_RUNE_VARBITS[i]));
-			int amount = client.getVarbitValue(RUNE_POUCH_AMOUNT_VARBITS[i]);
-			
-			if (runeId > 0 && amount > 0)
-			{
-				runeCounts.merge(runeId, amount, Integer::sum);
-				// Also handle combination runes in pouch
-				addCombinationRuneCounts(runeCounts, runeId, amount);
-			}
-		}
-	}
-
-	private int runeIdFromVarbit(int varbitValue)
-	{
-		// Varbit value to rune ID mapping
-		switch (varbitValue)
-		{
-			case 1: return SplashSpell.ItemID.AIR_RUNE;
-			case 2: return SplashSpell.ItemID.WATER_RUNE;
-			case 3: return SplashSpell.ItemID.EARTH_RUNE;
-			case 4: return SplashSpell.ItemID.FIRE_RUNE;
-			case 5: return SplashSpell.ItemID.MIND_RUNE;
-			case 6: return SplashSpell.ItemID.BODY_RUNE;
-			case 7: return SplashSpell.ItemID.DEATH_RUNE;
-			case 8: return 561; // Nature rune
-			case 9: return SplashSpell.ItemID.CHAOS_RUNE;
-			case 10: return 563; // Law rune
-			case 11: return 564; // Cosmic rune
-			case 12: return SplashSpell.ItemID.BLOOD_RUNE;
-			case 13: return 566; // Soul rune
-			case 14: return 9075; // Astral rune
-			case 15: return MIST_RUNE;
-			case 16: return MUD_RUNE;
-			case 17: return DUST_RUNE;
-			case 18: return LAVA_RUNE;
-			case 19: return STEAM_RUNE;
-			case 20: return SMOKE_RUNE;
-			case 21: return SplashSpell.ItemID.WRATH_RUNE;
-			default: return -1;
-		}
-	}
-
-	private int countLimitingRunes(SplashSpell spell)
-	{
-		// Use the advanced method which includes combo runes and pouch
-		return countLimitingRunesAdvanced(spell);
-	}
-
+	/**
+	 * Get infinite runes from equipped staves.
+	 * Delegates to RuneCalculator service.
+	 */
 	public java.util.Set<Integer> getInfiniteRunesFromEquipment()
 	{
-		java.util.Set<Integer> infiniteRunes = new java.util.HashSet<>();
-		
-		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
-		if (equipment == null)
-		{
-			return infiniteRunes;
-		}
-
-		for (Item item : equipment.getItems())
-		{
-			int id = item.getId();
-			
-			// Air staves
-			if (id == 1381 || id == 1397 || id == 11998 || // Staff of air, Air battlestaff, Mystic air staff
-			    id == 11787 || id == 12795 || // Smoke battlestaff, Mystic smoke staff
-			    id == 20736 || id == 20739 || // Dust battlestaff, Mystic dust staff
-			    id == 6562 || id == 6563)     // Mist battlestaff, Mystic mist staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.AIR_RUNE);
-			}
-			
-			// Water staves
-			if (id == 1383 || id == 1395 || id == 11991 || // Staff of water, Water battlestaff, Mystic water staff
-			    id == 11789 || id == 12797 || // Steam battlestaff, Mystic steam staff
-			    id == 6562 || id == 6563 ||   // Mist battlestaff, Mystic mist staff
-			    id == 6564 || id == 6565)     // Mud battlestaff, Mystic mud staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.WATER_RUNE);
-			}
-			
-			// Earth staves
-			if (id == 1385 || id == 1399 || id == 11994 || // Staff of earth, Earth battlestaff, Mystic earth staff
-			    id == 20736 || id == 20739 || // Dust battlestaff, Mystic dust staff
-			    id == 6564 || id == 6565 ||   // Mud battlestaff, Mystic mud staff
-			    id == 3053 || id == 3054)     // Lava battlestaff, Mystic lava staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.EARTH_RUNE);
-			}
-			
-			// Fire staves
-			if (id == 1387 || id == 1393 || id == 11998 || // Staff of fire, Fire battlestaff, Mystic fire staff
-			    id == 11787 || id == 12795 || // Smoke battlestaff, Mystic smoke staff
-			    id == 11789 || id == 12797 || // Steam battlestaff, Mystic steam staff
-			    id == 3053 || id == 3054)     // Lava battlestaff, Mystic lava staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.FIRE_RUNE);
-			}
-		}
-		
-		return infiniteRunes;
+		return runeCalculator.getInfiniteRunesFromEquipment();
 	}
 
-	// Female Knight of Ardougne model IDs (female armor body models)
-	// These are the model IDs used by the female variant of the knight
-	private static final java.util.Set<Integer> FEMALE_KNIGHT_MODEL_IDS = java.util.Set.of(
-		11936,  // Female model
-		3297   	// Male model
-	);
+	/**
+	 * Count limiting runes for a spell.
+	 * Delegates to RuneCalculator service.
+	 */
+	private int countLimitingRunes(SplashSpell spell)
+	{
+		return runeCalculator.getRemainingCasts(spell);
+	}
 
+	/**
+	 * Get the current spell from session or config.
+	 */
+	private SplashSpell getCurrentSpell()
+	{
+		SplashSession session = sessionManager.getCurrentSession();
+		if (session != null && session.getSpell() != null)
+		{
+			return session.getSpell();
+		}
+		return config.selectedSpell();
+	}
+
+	/**
+	 * Check if current target is a sticky knight.
+	 * Delegates to KnightDetector service.
+	 */
 	private boolean isStickyKnight()
 	{
-		if (currentTarget == null || !(currentTarget instanceof NPC))
-		{
-			return false;
-		}
-		NPC knight = (NPC) currentTarget;
-		
-		// Get the NPC's composition to check its models
-		net.runelite.api.NPCComposition composition = knight.getTransformedComposition();
-		if (composition == null)
-		{
-			composition = knight.getComposition();
-		}
-		
-		if (composition == null)
-		{
-			return false;
-		}
-		
-		// Check if any of the NPC's models match female knight models
-		int[] models = composition.getModels();
-		if (models != null)
-		{
-			for (int modelId : models)
-			{
-				if (FEMALE_KNIGHT_MODEL_IDS.contains(modelId))
-				{
-					return true;
-				}
-			}
-		}
-		
-		return false;
+		return knightDetector.isStickyKnight(currentTarget);
 	}
 
 	// ==================== Event Handlers ====================
@@ -1557,11 +1134,8 @@ public class SplashHelperPlugin extends Plugin
 						String playerName = player.getName();
 						if (playerName != null)
 						{
-							pickpocketers.add(playerName);
-							if (currentSession != null)
-							{
-								currentSession.addPickpocketer(playerName);
-							}
+							playerTracker.addPickpocketer(playerName);
+							sessionManager.addPickpocketer(playerName);
 						}
 					}
 				}
