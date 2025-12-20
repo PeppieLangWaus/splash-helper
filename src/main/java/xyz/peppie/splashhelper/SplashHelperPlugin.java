@@ -53,6 +53,11 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
+import xyz.peppie.splashhelper.service.KnightDetector;
+import xyz.peppie.splashhelper.service.PlayerTracker;
+import xyz.peppie.splashhelper.service.RuneCalculator;
+import xyz.peppie.splashhelper.service.SessionManager;
+import xyz.peppie.splashhelper.util.Constants;
 
 @Slf4j
 @PluginDescriptor(
@@ -85,6 +90,19 @@ public class SplashHelperPlugin extends Plugin
 
 	@Inject
 	private ItemManager itemManager;
+
+	// Services
+	@Inject
+	private RuneCalculator runeCalculator;
+
+	@Inject
+	private SessionManager sessionManager;
+
+	@Inject
+	private KnightDetector knightDetector;
+
+	@Inject
+	private PlayerTracker playerTracker;
 
 	// Statistics panel
 	private SplashStatisticsPanel statisticsPanel;
@@ -130,7 +148,7 @@ public class SplashHelperPlugin extends Plugin
 	// Cast tracking via XP drops
 	private int lastMagicXp = -1;
 	private Instant lastCastTime = null;
-	private static final int SESSION_TIMEOUT_SECONDS = 10;
+	private static final int SESSION_TIMEOUT_SECONDS = Constants.SESSION_TIMEOUT_SECONDS;
 	
 	// Cached values for UI (updated on client thread)
 	@Getter
