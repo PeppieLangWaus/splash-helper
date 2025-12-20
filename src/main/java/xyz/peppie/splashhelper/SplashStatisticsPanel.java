@@ -4,6 +4,8 @@ import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.GridLayout;
+import java.util.ArrayList;
+import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
@@ -51,6 +53,11 @@ public class SplashStatisticsPanel extends PluginPanel
     // Supply tracker
     private SplashSupplyTrackerBox supplyBox;
 
+    // Session history
+    private final JPanel historyContainer = new JPanel();
+    private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
+    private int lastHistorySize = 0;
+
     public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager)
     {
         super(false);
@@ -72,6 +79,8 @@ public class SplashStatisticsPanel extends PluginPanel
         dataPanel.add(buildOverallPanel());
         dataPanel.add(javax.swing.Box.createVerticalStrut(10));
         dataPanel.add(buildCurrentSessionPanel(itemManager));
+        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
+        dataPanel.add(buildHistoryPanel());
 
         // Add panels to card layout
         container.add(errorPanel, ERROR_PANEL);
@@ -148,6 +157,49 @@ public class SplashStatisticsPanel extends PluginPanel
         currentContainer.add(supplyBox);
 
         return currentContainer;
+    }
+
+    private JPanel buildHistoryPanel()
+    {
+        historyContainer.setLayout(new BoxLayout(historyContainer, BoxLayout.Y_AXIS));
+        historyContainer.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        return historyContainer;
+    }
+
+    private void updateHistoryDisplay(List<SplashSession> history)
+    {
+        if (history.size() == lastHistorySize)
+        {
+            return;
+        }
+
+        // New sessions added to history
+        for (int i = lastHistorySize; i < history.size(); i++)
+        {
+            SplashSession session = history.get(i);
+            // Only the latest session should be expanded, others collapsed
+            boolean isLatest = (i == history.size() - 1);
+            
+            // Collapse all existing boxes when a new one is added
+            for (SplashSessionHistoryBox box : historyBoxes)
+            {
+                box.collapse();
+            }
+            
+            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest);
+            historyBoxes.add(historyBox);
+            
+            // Add spacer before each history box (except the first)
+            if (i > 0 || lastHistorySize > 0)
+            {
+                historyContainer.add(javax.swing.Box.createVerticalStrut(10));
+            }
+            historyContainer.add(historyBox);
+        }
+
+        lastHistorySize = history.size();
+        historyContainer.revalidate();
+        historyContainer.repaint();
     }
 
     private void addStatRow(JPanel panel, String labelText, JLabel valueLabel)
@@ -248,18 +300,18 @@ public class SplashStatisticsPanel extends PluginPanel
                 overallStatusLabel.setForeground(Color.GRAY);
             }
 
-            // Update current/last session display
-            if (hasDisplayableSession)
+            // Update current session display
+            if (hasActiveSession)
             {
                 currentPanel.setVisible(true);
                 supplyBox.setVisible(true);
 
-                playerLabel.setText(displaySession.getPlayerName() != null ? displaySession.getPlayerName() : "-");
+                playerLabel.setText(currentSession.getPlayerName() != null ? currentSession.getPlayerName() : "-");
 
-                if (displaySession.getSpell() != null)
+                if (currentSession.getSpell() != null)
                 {
-                    spellLabel.setText(displaySession.getSpell().getName());
-                    spellLabel.setForeground(hasActiveSession ? Color.YELLOW : Color.GRAY);
+                    spellLabel.setText(currentSession.getSpell().getName());
+                    spellLabel.setForeground(Color.YELLOW);
                 }
                 else
                 {
@@ -267,12 +319,12 @@ public class SplashStatisticsPanel extends PluginPanel
                     spellLabel.setForeground(Color.GRAY);
                 }
 
-                worldLabel.setText(String.valueOf(displaySession.getWorld()));
+                worldLabel.setText(String.valueOf(currentSession.getWorld()));
 
-                if (displaySession.isStickyKnight())
+                if (currentSession.isStickyKnight())
                 {
                     stickyLabel.setText("STICKY");
-                    stickyLabel.setForeground(hasActiveSession ? Color.GREEN : Color.GRAY);
+                    stickyLabel.setForeground(Color.GREEN);
                 }
                 else
                 {
@@ -280,24 +332,44 @@ public class SplashStatisticsPanel extends PluginPanel
                     stickyLabel.setForeground(Color.WHITE);
                 }
 
-                timeLabel.setText(formatDuration(displaySession.getSessionDurationSeconds()));
-                timeLabel.setForeground(hasActiveSession ? Color.GREEN : Color.GRAY);
+                timeLabel.setText(formatDuration(currentSession.getSessionDurationSeconds()));
+                timeLabel.setForeground(Color.GREEN);
 
-                castsLabel.setText(String.valueOf(displaySession.getSpellsCast()));
+                castsLabel.setText(String.valueOf(currentSession.getSpellsCast()));
 
-                xpGainedLabel.setText(formatNumber(displaySession.getMagicXpGained()));
-                xpHourLabel.setText(formatNumber((int) displaySession.getXpPerHour()) + "/hr");
-                xpHourLabel.setForeground(hasActiveSession ? Color.CYAN : Color.GRAY);
+                xpGainedLabel.setText(formatNumber(currentSession.getMagicXpGained()));
+                xpHourLabel.setText(formatNumber((int) currentSession.getXpPerHour()) + "/hr");
+                xpHourLabel.setForeground(Color.CYAN);
 
                 // Update supply box with actual rune usage (combo runes, excludes infinite)
                 java.util.List<int[]> actualRuneUsage = plugin.getCachedActualRuneUsage();
-                supplyBox.buildItems(actualRuneUsage, displaySession.getSpellsCast());
+                supplyBox.buildItems(actualRuneUsage, currentSession.getSpellsCast());
             }
             else
             {
-                currentPanel.setVisible(false);
-                supplyBox.setVisible(false);
+                // No active session - reset current session to zeroed values
+                currentPanel.setVisible(true);
+                supplyBox.setVisible(true);
+
+                playerLabel.setText("-");
+                spellLabel.setText("-");
+                spellLabel.setForeground(Color.GRAY);
+                worldLabel.setText("-");
+                stickyLabel.setText("-");
+                stickyLabel.setForeground(Color.GRAY);
+                timeLabel.setText("0:00");
+                timeLabel.setForeground(Color.GRAY);
+                castsLabel.setText("0");
+                xpGainedLabel.setText("0");
+                xpHourLabel.setText("0/hr");
+                xpHourLabel.setForeground(Color.GRAY);
+
+                // Show empty runes row
+                supplyBox.buildItems(new java.util.ArrayList<>(), 0);
             }
+
+            // Update session history
+            updateHistoryDisplay(history);
 
             revalidate();
             repaint();

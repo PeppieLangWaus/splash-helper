@@ -34,7 +34,7 @@ public class SplashSupplyTrackerBox extends JPanel
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
 
 		boxTitle.setLayout(new BorderLayout());
-		boxTitle.setBorder(new EmptyBorder(7, 7, 7, 7));
+		boxTitle.setBorder(new EmptyBorder(5, 5, 5, 5));
 		boxTitle.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
 
 		titleLabel.setText(title);
@@ -42,8 +42,8 @@ public class SplashSupplyTrackerBox extends JPanel
 		titleLabel.setForeground(Color.WHITE);
 		boxTitle.add(titleLabel, BorderLayout.WEST);
 
-		itemContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		itemContainer.setBorder(new EmptyBorder(5, 5, 5, 5));
+		itemContainer.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		itemContainer.setBorder(new EmptyBorder(1, 1, 1, 1));
 
 		add(boxTitle);
 		add(itemContainer);
@@ -56,47 +56,44 @@ public class SplashSupplyTrackerBox extends JPanel
 	 */
 	public void buildItems(java.util.List<int[]> actualRuneUsage, int spellsCast)
 	{
-		if (actualRuneUsage == null || actualRuneUsage.isEmpty())
-		{
-			setVisible(false);
-			return;
-		}
-
 		setVisible(true);
 		itemContainer.removeAll();
 
-		int runeCount = actualRuneUsage.size();
+		int runeCount = (actualRuneUsage == null) ? 0 : actualRuneUsage.size();
 
-		// Calculate rows needed
-		int rowSize = ((runeCount % ITEMS_PER_ROW == 0) ? 0 : 1) + runeCount / ITEMS_PER_ROW;
+		// Calculate rows needed (minimum 1 row for empty state)
+		int rowSize = runeCount == 0 ? 1 : ((runeCount % ITEMS_PER_ROW == 0) ? 0 : 1) + runeCount / ITEMS_PER_ROW;
 		itemContainer.setLayout(new GridLayout(rowSize, ITEMS_PER_ROW, 1, 1));
 		
 		// Set preferred height for item container based on rows (with padding)
-		int containerHeight = rowSize * ITEM_SIZE + 20; // 20 for padding (10 top + 10 bottom)
+		int containerHeight = rowSize * ITEM_SIZE + 8; // 20 for padding (10 top + 10 bottom)
 		itemContainer.setPreferredSize(new Dimension(ITEMS_PER_ROW * ITEM_SIZE, containerHeight));
 		itemContainer.setMaximumSize(new Dimension(Integer.MAX_VALUE, containerHeight));
 
-		for (int[] runeData : actualRuneUsage)
+		if (actualRuneUsage != null)
 		{
-			int itemId = runeData[0];
-			int amountPerCast = runeData[1];
-			int totalUsed = spellsCast * amountPerCast;
-			
-			JPanel slotContainer = new JPanel();
-			slotContainer.setBackground(ColorScheme.LIGHT_GRAY_COLOR);
-			slotContainer.setLayout(new BorderLayout());
-			slotContainer.setPreferredSize(new Dimension(ITEM_SIZE, ITEM_SIZE));
+			for (int[] runeData : actualRuneUsage)
+			{
+				int itemId = runeData[0];
+				int amountPerCast = runeData[1];
+				int totalUsed = spellsCast * amountPerCast;
+				
+				JPanel slotContainer = new JPanel();
+				slotContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+				slotContainer.setLayout(new BorderLayout());
+				slotContainer.setPreferredSize(new Dimension(ITEM_SIZE, ITEM_SIZE));
 
-			JLabel imageLabel = new JLabel();
-			imageLabel.setVerticalAlignment(SwingConstants.CENTER);
-			imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
-			imageLabel.setToolTipText(buildRuneTooltip(itemId, totalUsed, amountPerCast));
+				JLabel imageLabel = new JLabel();
+				imageLabel.setVerticalAlignment(SwingConstants.CENTER);
+				imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
+				imageLabel.setToolTipText(buildRuneTooltip(itemId, totalUsed, amountPerCast));
 
-			AsyncBufferedImage itemImage = itemManager.getImage(itemId, totalUsed, totalUsed > 1);
-			itemImage.addTo(imageLabel);
+				AsyncBufferedImage itemImage = itemManager.getImage(itemId, totalUsed, totalUsed > 1);
+				itemImage.addTo(imageLabel);
 
-			slotContainer.add(imageLabel, BorderLayout.CENTER);
-			itemContainer.add(slotContainer);
+				slotContainer.add(imageLabel, BorderLayout.CENTER);
+				itemContainer.add(slotContainer);
+			}
 		}
 
 		// Fill remaining slots if needed
@@ -104,7 +101,7 @@ public class SplashSupplyTrackerBox extends JPanel
 		for (int i = 0; i < remaining; i++)
 		{
 			JPanel emptySlot = new JPanel();
-			emptySlot.setBackground(ColorScheme.LIGHT_GRAY_COLOR);
+			emptySlot.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 			emptySlot.setPreferredSize(new Dimension(ITEM_SIZE, ITEM_SIZE));
 			itemContainer.add(emptySlot);
 		}
