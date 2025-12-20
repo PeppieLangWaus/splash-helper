@@ -1107,402 +1107,52 @@ public class SplashHelperPlugin extends Plugin
 		return count;
 	}
 
-	// Combination rune IDs
-	private static final int MIST_RUNE = 4695;   // Air + Water
-	private static final int DUST_RUNE = 4696;   // Air + Earth
-	private static final int MUD_RUNE = 4698;    // Water + Earth
-	private static final int SMOKE_RUNE = 4697;  // Air + Fire
-	private static final int STEAM_RUNE = 4694;  // Water + Fire
-	private static final int LAVA_RUNE = 4699;   // Earth + Fire
-
-	// Rune pouch IDs
-	private static final int RUNE_POUCH = 12791;
-	private static final int RUNE_POUCH_DIVINE = 27281;
-
 	/**
 	 * Get remaining casts for the current spell (from session or config).
-	 * Accounts for combination runes, rune pouch, and equipped staves.
+	 * Delegates to RuneCalculator service.
 	 */
 	public int getRemainingCastsForCurrentSpell()
 	{
-		SplashSpell spell = null;
-		
-		// Try to get spell from current session first
-		if (currentSession != null && currentSession.getSpell() != null)
-		{
-			spell = currentSession.getSpell();
-		}
-		else
-		{
-			// Fall back to config spell
-			spell = config.selectedSpell();
-		}
-		
-		return countLimitingRunesAdvanced(spell);
-	}
-
-	/**
-	 * Count limiting runes with support for combination runes and rune pouch.
-	 */
-	private int countLimitingRunesAdvanced(SplashSpell spell)
-	{
-		if (spell == null)
-		{
-			return 0;
-		}
-
-		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-		if (inventory == null)
-		{
-			return 0;
-		}
-
-		// Check equipment for staves that provide infinite runes
-		java.util.Set<Integer> infiniteRunes = getInfiniteRunesFromEquipment();
-
-		// Build a map of rune type -> count (including combo runes and pouch)
-		java.util.Map<Integer, Integer> runeCounts = new java.util.HashMap<>();
-		
-		// Count inventory runes
-		for (Item item : inventory.getItems())
-		{
-			int id = item.getId();
-			int qty = item.getQuantity();
-			
-			// Regular runes
-			if (isBasicRune(id))
-			{
-				runeCounts.merge(id, qty, Integer::sum);
-			}
-			
-			// Combination runes - add to both element types
-			addCombinationRuneCounts(runeCounts, id, qty);
-			
-			// Check for rune pouch
-			if (id == RUNE_POUCH || id == RUNE_POUCH_DIVINE)
-			{
-				addRunePouchCounts(runeCounts);
-			}
-		}
-
-		int minCasts = Integer.MAX_VALUE;
-		
-		for (SplashSpell.RuneCost cost : spell.getRuneCosts())
-		{
-			// If staff provides infinite runes of this type, skip it
-			if (infiniteRunes.contains(cost.getItemId()))
-			{
-				continue;
-			}
-			
-			int runeCount = runeCounts.getOrDefault(cost.getItemId(), 0);
-			int castsWithThisRune = runeCount / cost.getAmount();
-			minCasts = Math.min(minCasts, castsWithThisRune);
-		}
-
-		return minCasts == Integer.MAX_VALUE ? 0 : minCasts;
-	}
-
-	private boolean isBasicRune(int id)
-	{
-		return id == SplashSpell.ItemID.AIR_RUNE ||
-			id == SplashSpell.ItemID.WATER_RUNE ||
-			id == SplashSpell.ItemID.EARTH_RUNE ||
-			id == SplashSpell.ItemID.FIRE_RUNE ||
-			id == SplashSpell.ItemID.MIND_RUNE ||
-			id == SplashSpell.ItemID.BODY_RUNE ||
-			id == SplashSpell.ItemID.CHAOS_RUNE ||
-			id == SplashSpell.ItemID.DEATH_RUNE ||
-			id == SplashSpell.ItemID.BLOOD_RUNE ||
-			id == SplashSpell.ItemID.WRATH_RUNE;
+		return runeCalculator.getRemainingCasts(getCurrentSpell());
 	}
 
 	/**
 	 * Get the actual runes being consumed for the current spell.
-	 * Detects combination runes in inventory and excludes infinite runes from staves.
-	 * Returns list of int[2] arrays: [itemId, amountPerCast]
+	 * Delegates to RuneCalculator service.
 	 */
 	private java.util.List<int[]> getActualRuneUsage()
 	{
-		java.util.List<int[]> result = new java.util.ArrayList<>();
-		
-		SplashSpell spell = null;
-		if (currentSession != null && currentSession.getSpell() != null)
-		{
-			spell = currentSession.getSpell();
-		}
-		else
-		{
-			spell = config.selectedSpell();
-		}
-		
-		if (spell == null)
-		{
-			return result;
-		}
-
-		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-		if (inventory == null)
-		{
-			return result;
-		}
-
-		java.util.Set<Integer> infiniteRunes = getInfiniteRunesFromEquipment();
-		
-		// Track which combo runes we have in inventory
-		java.util.Map<Integer, Integer> comboRunesInInventory = new java.util.HashMap<>();
-		for (Item item : inventory.getItems())
-		{
-			int id = item.getId();
-			if (isCombinationRune(id))
-			{
-				comboRunesInInventory.put(id, item.getQuantity());
-			}
-		}
-		
-		// Also check rune pouch for combo runes
-		final int[] RUNE_POUCH_RUNE_VARBITS = {29, 1622, 1623};
-		final int[] RUNE_POUCH_AMOUNT_VARBITS = {1624, 1625, 1626};
-		for (int i = 0; i < 3; i++)
-		{
-			int runeId = runeIdFromVarbit(client.getVarbitValue(RUNE_POUCH_RUNE_VARBITS[i]));
-			int amount = client.getVarbitValue(RUNE_POUCH_AMOUNT_VARBITS[i]);
-			if (runeId > 0 && amount > 0 && isCombinationRune(runeId))
-			{
-				comboRunesInInventory.merge(runeId, amount, Integer::sum);
-			}
-		}
-		
-		// For each rune cost, determine actual rune being used
-		for (SplashSpell.RuneCost cost : spell.getRuneCosts())
-		{
-			int requiredRuneId = cost.getItemId();
-			
-			// Skip if staff provides this rune infinitely
-			if (infiniteRunes.contains(requiredRuneId))
-			{
-				continue;
-			}
-			
-			// Check if a combination rune provides this element
-			int comboRuneId = findCombinationRuneFor(requiredRuneId, comboRunesInInventory.keySet());
-			if (comboRuneId > 0)
-			{
-				result.add(new int[]{comboRuneId, cost.getAmount()});
-			}
-			else
-			{
-				// Use regular rune
-				result.add(new int[]{requiredRuneId, cost.getAmount()});
-			}
-		}
-		
-		// Deduplicate combo runes (if same combo rune provides multiple elements)
-		return deduplicateRuneUsage(result);
+		return runeCalculator.getActualRuneUsage(getCurrentSpell());
 	}
 
-	private boolean isCombinationRune(int id)
-	{
-		return id == MIST_RUNE || id == DUST_RUNE || id == MUD_RUNE ||
-			id == SMOKE_RUNE || id == STEAM_RUNE || id == LAVA_RUNE;
-	}
-
-	private int findCombinationRuneFor(int elementRuneId, java.util.Set<Integer> availableComboRunes)
-	{
-		for (int comboId : availableComboRunes)
-		{
-			if (combinationRuneProvides(comboId, elementRuneId))
-			{
-				return comboId;
-			}
-		}
-		return -1;
-	}
-
-	private boolean combinationRuneProvides(int comboRuneId, int elementRuneId)
-	{
-		switch (comboRuneId)
-		{
-			case MIST_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.WATER_RUNE;
-			case DUST_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.EARTH_RUNE;
-			case MUD_RUNE:
-				return elementRuneId == SplashSpell.ItemID.WATER_RUNE || elementRuneId == SplashSpell.ItemID.EARTH_RUNE;
-			case SMOKE_RUNE:
-				return elementRuneId == SplashSpell.ItemID.AIR_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			case STEAM_RUNE:
-				return elementRuneId == SplashSpell.ItemID.WATER_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			case LAVA_RUNE:
-				return elementRuneId == SplashSpell.ItemID.EARTH_RUNE || elementRuneId == SplashSpell.ItemID.FIRE_RUNE;
-			default:
-				return false;
-		}
-	}
-
-	private java.util.List<int[]> deduplicateRuneUsage(java.util.List<int[]> runeUsage)
-	{
-		// If same rune appears multiple times (combo rune providing 2 elements), keep only one entry
-		java.util.Map<Integer, Integer> seen = new java.util.LinkedHashMap<>();
-		for (int[] entry : runeUsage)
-		{
-			int itemId = entry[0];
-			int amount = entry[1];
-			// For combo runes, they provide both elements per rune, so we only count once
-			if (!seen.containsKey(itemId))
-			{
-				seen.put(itemId, amount);
-			}
-		}
-		
-		java.util.List<int[]> result = new java.util.ArrayList<>();
-		for (java.util.Map.Entry<Integer, Integer> entry : seen.entrySet())
-		{
-			result.add(new int[]{entry.getKey(), entry.getValue()});
-		}
-		return result;
-	}
-
-	private void addCombinationRuneCounts(java.util.Map<Integer, Integer> runeCounts, int itemId, int quantity)
-	{
-		switch (itemId)
-		{
-			case MIST_RUNE: // Air + Water
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				break;
-			case DUST_RUNE: // Air + Earth
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				break;
-			case MUD_RUNE: // Water + Earth
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				break;
-			case SMOKE_RUNE: // Air + Fire
-				runeCounts.merge(SplashSpell.ItemID.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-			case STEAM_RUNE: // Water + Fire
-				runeCounts.merge(SplashSpell.ItemID.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-			case LAVA_RUNE: // Earth + Fire
-				runeCounts.merge(SplashSpell.ItemID.EARTH_RUNE, quantity, Integer::sum);
-				runeCounts.merge(SplashSpell.ItemID.FIRE_RUNE, quantity, Integer::sum);
-				break;
-		}
-	}
-
-	private void addRunePouchCounts(java.util.Map<Integer, Integer> runeCounts)
-	{
-		// Rune pouch contents are stored in varbit values
-		// Varbit IDs for rune pouch slots
-		final int[] RUNE_POUCH_RUNE_VARBITS = {29, 1622, 1623};
-		final int[] RUNE_POUCH_AMOUNT_VARBITS = {1624, 1625, 1626};
-		
-		for (int i = 0; i < 3; i++)
-		{
-			int runeId = runeIdFromVarbit(client.getVarbitValue(RUNE_POUCH_RUNE_VARBITS[i]));
-			int amount = client.getVarbitValue(RUNE_POUCH_AMOUNT_VARBITS[i]);
-			
-			if (runeId > 0 && amount > 0)
-			{
-				runeCounts.merge(runeId, amount, Integer::sum);
-				// Also handle combination runes in pouch
-				addCombinationRuneCounts(runeCounts, runeId, amount);
-			}
-		}
-	}
-
-	private int runeIdFromVarbit(int varbitValue)
-	{
-		// Varbit value to rune ID mapping
-		switch (varbitValue)
-		{
-			case 1: return SplashSpell.ItemID.AIR_RUNE;
-			case 2: return SplashSpell.ItemID.WATER_RUNE;
-			case 3: return SplashSpell.ItemID.EARTH_RUNE;
-			case 4: return SplashSpell.ItemID.FIRE_RUNE;
-			case 5: return SplashSpell.ItemID.MIND_RUNE;
-			case 6: return SplashSpell.ItemID.BODY_RUNE;
-			case 7: return SplashSpell.ItemID.DEATH_RUNE;
-			case 8: return 561; // Nature rune
-			case 9: return SplashSpell.ItemID.CHAOS_RUNE;
-			case 10: return 563; // Law rune
-			case 11: return 564; // Cosmic rune
-			case 12: return SplashSpell.ItemID.BLOOD_RUNE;
-			case 13: return 566; // Soul rune
-			case 14: return 9075; // Astral rune
-			case 15: return MIST_RUNE;
-			case 16: return MUD_RUNE;
-			case 17: return DUST_RUNE;
-			case 18: return LAVA_RUNE;
-			case 19: return STEAM_RUNE;
-			case 20: return SMOKE_RUNE;
-			case 21: return SplashSpell.ItemID.WRATH_RUNE;
-			default: return -1;
-		}
-	}
-
-	private int countLimitingRunes(SplashSpell spell)
-	{
-		// Use the advanced method which includes combo runes and pouch
-		return countLimitingRunesAdvanced(spell);
-	}
-
+	/**
+	 * Get infinite runes from equipped staves.
+	 * Delegates to RuneCalculator service.
+	 */
 	public java.util.Set<Integer> getInfiniteRunesFromEquipment()
 	{
-		java.util.Set<Integer> infiniteRunes = new java.util.HashSet<>();
-		
-		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
-		if (equipment == null)
-		{
-			return infiniteRunes;
-		}
+		return runeCalculator.getInfiniteRunesFromEquipment();
+	}
 
-		for (Item item : equipment.getItems())
+	/**
+	 * Count limiting runes for a spell.
+	 * Delegates to RuneCalculator service.
+	 */
+	private int countLimitingRunes(SplashSpell spell)
+	{
+		return runeCalculator.getRemainingCasts(spell);
+	}
+
+	/**
+	 * Get the current spell from session or config.
+	 */
+	private SplashSpell getCurrentSpell()
+	{
+		if (currentSession != null && currentSession.getSpell() != null)
 		{
-			int id = item.getId();
-			
-			// Air staves
-			if (id == 1381 || id == 1397 || id == 11998 || // Staff of air, Air battlestaff, Mystic air staff
-			    id == 11787 || id == 12795 || // Smoke battlestaff, Mystic smoke staff
-			    id == 20736 || id == 20739 || // Dust battlestaff, Mystic dust staff
-			    id == 6562 || id == 6563)     // Mist battlestaff, Mystic mist staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.AIR_RUNE);
-			}
-			
-			// Water staves
-			if (id == 1383 || id == 1395 || id == 11991 || // Staff of water, Water battlestaff, Mystic water staff
-			    id == 11789 || id == 12797 || // Steam battlestaff, Mystic steam staff
-			    id == 6562 || id == 6563 ||   // Mist battlestaff, Mystic mist staff
-			    id == 6564 || id == 6565)     // Mud battlestaff, Mystic mud staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.WATER_RUNE);
-			}
-			
-			// Earth staves
-			if (id == 1385 || id == 1399 || id == 11994 || // Staff of earth, Earth battlestaff, Mystic earth staff
-			    id == 20736 || id == 20739 || // Dust battlestaff, Mystic dust staff
-			    id == 6564 || id == 6565 ||   // Mud battlestaff, Mystic mud staff
-			    id == 3053 || id == 3054)     // Lava battlestaff, Mystic lava staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.EARTH_RUNE);
-			}
-			
-			// Fire staves
-			if (id == 1387 || id == 1393 || id == 11998 || // Staff of fire, Fire battlestaff, Mystic fire staff
-			    id == 11787 || id == 12795 || // Smoke battlestaff, Mystic smoke staff
-			    id == 11789 || id == 12797 || // Steam battlestaff, Mystic steam staff
-			    id == 3053 || id == 3054)     // Lava battlestaff, Mystic lava staff
-			{
-				infiniteRunes.add(SplashSpell.ItemID.FIRE_RUNE);
-			}
+			return currentSession.getSpell();
 		}
-		
-		return infiniteRunes;
+		return config.selectedSpell();
 	}
 
 	// Female Knight of Ardougne model IDs (female armor body models)
