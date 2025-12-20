@@ -3,6 +3,7 @@ package xyz.peppie.splashhelper;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +11,7 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.game.ItemManager;
@@ -25,6 +27,7 @@ public class SplashStatisticsPanel extends PluginPanel
 
     private final SplashHelperPlugin plugin;
     private final SplashHelperConfig config;
+    private final ItemManager itemManager;
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel container = new JPanel(cardLayout);
@@ -63,6 +66,7 @@ public class SplashStatisticsPanel extends PluginPanel
         super(false);
         this.plugin = plugin;
         this.config = config;
+        this.itemManager = itemManager;
 
         setLayout(new BorderLayout());
         setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -163,7 +167,21 @@ public class SplashStatisticsPanel extends PluginPanel
     {
         historyContainer.setLayout(new BoxLayout(historyContainer, BoxLayout.Y_AXIS));
         historyContainer.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        return historyContainer;
+        
+        // Wrap in scroll pane
+        JScrollPane scrollPane = new JScrollPane(historyContainer);
+        scrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        scrollPane.setBorder(null);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.getVerticalScrollBar().setPreferredSize(new Dimension(8, 0));
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setBackground(ColorScheme.DARK_GRAY_COLOR);
+        wrapper.add(scrollPane, BorderLayout.CENTER);
+        
+        return wrapper;
     }
 
     private void updateHistoryDisplay(List<SplashSession> history)
@@ -186,7 +204,10 @@ public class SplashStatisticsPanel extends PluginPanel
                 box.collapse();
             }
             
-            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest);
+            // Get rune usage for this session
+            java.util.List<int[]> sessionRuneUsage = getSessionRuneUsage(session);
+            
+            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, itemManager, sessionRuneUsage, !isLatest);
             historyBoxes.add(0, historyBox); // Add to front of list
             
             // Add new session at the top (index 0)
@@ -202,6 +223,26 @@ public class SplashStatisticsPanel extends PluginPanel
         lastHistorySize = history.size();
         historyContainer.revalidate();
         historyContainer.repaint();
+    }
+
+    private java.util.List<int[]> getSessionRuneUsage(SplashSession session)
+    {
+        if (session == null || session.getSpell() == null)
+        {
+            return new java.util.ArrayList<>();
+        }
+
+        // Calculate actual rune usage for this session
+        java.util.List<int[]> runeUsage = new java.util.ArrayList<>();
+        SplashSpell spell = session.getSpell();
+        
+        // Get the runes required by the spell from RuneCost array
+        for (SplashSpell.RuneCost runeCost : spell.getRuneCosts())
+        {
+            runeUsage.add(new int[]{runeCost.getItemId(), runeCost.getAmount()});
+        }
+
+        return runeUsage;
     }
 
     private void addStatRow(JPanel panel, String labelText, JLabel valueLabel)

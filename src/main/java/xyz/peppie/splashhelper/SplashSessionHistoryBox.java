@@ -8,14 +8,17 @@ import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.util.QuantityFormatter;
@@ -27,14 +30,20 @@ public class SplashSessionHistoryBox extends JPanel
 	private static final DateTimeFormatter FULL_FORMAT = DateTimeFormatter.ofPattern("EEE HH:mm");
 
 	private final SplashSession session;
+	private final ItemManager itemManager;
+	private final List<int[]> runeUsage;
 	private final JPanel titlePanel;
 	private final JLabel titleLabel;
+	private final JLabel collapseIndicator;
 	private final JPanel contentPanel;
+	private SplashSupplyTrackerBox supplyBox;
 	private boolean collapsed;
 
-	public SplashSessionHistoryBox(SplashSession session, boolean startCollapsed)
+	public SplashSessionHistoryBox(SplashSession session, ItemManager itemManager, List<int[]> runeUsage, boolean startCollapsed)
 	{
 		this.session = session;
+		this.itemManager = itemManager;
+		this.runeUsage = runeUsage;
 		this.collapsed = startCollapsed;
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -53,9 +62,9 @@ public class SplashSessionHistoryBox extends JPanel
 		titlePanel.add(titleLabel, BorderLayout.WEST);
 
 		// Collapse indicator
-		JLabel collapseIndicator = new JLabel();
+		collapseIndicator = new JLabel();
 		collapseIndicator.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		collapseIndicator.setFont(FontManager.getRunescapeSmallFont());
+		collapseIndicator.setFont(FontManager.getRunescapeBoldFont());
 		titlePanel.add(collapseIndicator, BorderLayout.EAST);
 
 		titlePanel.addMouseListener(new MouseAdapter()
@@ -99,16 +108,28 @@ public class SplashSessionHistoryBox extends JPanel
 
 		add(contentPanel);
 
+		// Add supply box for runes used
+		supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
+		if (runeUsage != null && !runeUsage.isEmpty())
+		{
+			supplyBox.buildItems(runeUsage, session.getSpellsCast());
+		}
+		add(supplyBox);
+
 		// Set initial state
 		updateTitle();
+		updateCaretIndicator();
 		contentPanel.setVisible(!collapsed);
+		supplyBox.setVisible(!collapsed);
 	}
 
 	private void toggleCollapse()
 	{
 		collapsed = !collapsed;
 		contentPanel.setVisible(!collapsed);
+		supplyBox.setVisible(!collapsed);
 		updateTitle();
+		updateCaretIndicator();
 		revalidate();
 		repaint();
 	}
@@ -119,7 +140,9 @@ public class SplashSessionHistoryBox extends JPanel
 		{
 			collapsed = false;
 			contentPanel.setVisible(true);
+			supplyBox.setVisible(true);
 			updateTitle();
+			updateCaretIndicator();
 			revalidate();
 			repaint();
 		}
@@ -131,7 +154,9 @@ public class SplashSessionHistoryBox extends JPanel
 		{
 			collapsed = true;
 			contentPanel.setVisible(false);
+			supplyBox.setVisible(false);
 			updateTitle();
+			updateCaretIndicator();
 			revalidate();
 			repaint();
 		}
@@ -144,24 +169,48 @@ public class SplashSessionHistoryBox extends JPanel
 
 	private void updateTitle()
 	{
+		LocalDateTime start = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault());
+		Instant endInstant = session.getEndTime() != null ? session.getEndTime() : Instant.now();
+		LocalDateTime end = LocalDateTime.ofInstant(endInstant, ZoneId.systemDefault());
+		LocalDate today = LocalDate.now();
+		LocalDate sessionDate = start.toLocalDate();
+		boolean isSameDay = sessionDate.equals(today);
+
 		if (collapsed)
 		{
-			// Collapsed: "<day> - <duration> session"
-			LocalDateTime start = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault());
-			String day = start.format(DAY_FORMAT);
-			String duration = formatDuration(session.getSessionDurationSeconds());
-			titleLabel.setText(day + " - " + duration + " session");
+			if (isSameDay)
+			{
+				// Same day collapsed: "<start time> - <duration>"
+				String startTime = start.format(TIME_FORMAT);
+				String duration = formatDuration(session.getSessionDurationSeconds());
+				titleLabel.setText(startTime + " - " + duration);
+			}
+			else
+			{
+				// Different day collapsed: "<day> - <duration> session"
+				String day = start.format(DAY_FORMAT);
+				String duration = formatDuration(session.getSessionDurationSeconds());
+				titleLabel.setText(day + " - " + duration + " session");
+			}
 		}
 		else
 		{
 			// Expanded: "<day> <start time> - <day> <end time>"
-			LocalDateTime start = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault());
-			Instant endInstant = session.getEndTime() != null ? session.getEndTime() : Instant.now();
-			LocalDateTime end = LocalDateTime.ofInstant(endInstant, ZoneId.systemDefault());
-			
 			String startStr = start.format(FULL_FORMAT);
 			String endStr = end.format(FULL_FORMAT);
 			titleLabel.setText(startStr + " - " + endStr);
+		}
+	}
+
+	private void updateCaretIndicator()
+	{
+		if (collapsed)
+		{
+			collapseIndicator.setText("▸"); // Right-pointing caret
+		}
+		else
+		{
+			collapseIndicator.setText("▾"); // Down-pointing caret
 		}
 	}
 
