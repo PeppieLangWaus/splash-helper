@@ -1155,47 +1155,13 @@ public class SplashHelperPlugin extends Plugin
 		return config.selectedSpell();
 	}
 
-	// Female Knight of Ardougne model IDs (female armor body models)
-	// These are the model IDs used by the female variant of the knight
-	private static final java.util.Set<Integer> FEMALE_KNIGHT_MODEL_IDS = java.util.Set.of(
-		11936,  // Female model
-		3297   	// Male model
-	);
-
+	/**
+	 * Check if current target is a sticky knight.
+	 * Delegates to KnightDetector service.
+	 */
 	private boolean isStickyKnight()
 	{
-		if (currentTarget == null || !(currentTarget instanceof NPC))
-		{
-			return false;
-		}
-		NPC knight = (NPC) currentTarget;
-		
-		// Get the NPC's composition to check its models
-		net.runelite.api.NPCComposition composition = knight.getTransformedComposition();
-		if (composition == null)
-		{
-			composition = knight.getComposition();
-		}
-		
-		if (composition == null)
-		{
-			return false;
-		}
-		
-		// Check if any of the NPC's models match female knight models
-		int[] models = composition.getModels();
-		if (models != null)
-		{
-			for (int modelId : models)
-			{
-				if (FEMALE_KNIGHT_MODEL_IDS.contains(modelId))
-				{
-					return true;
-				}
-			}
-		}
-		
-		return false;
+		return knightDetector.isStickyKnight(currentTarget);
 	}
 
 	// ==================== Event Handlers ====================
