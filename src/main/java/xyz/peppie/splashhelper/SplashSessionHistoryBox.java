@@ -3,7 +3,6 @@ package xyz.peppie.splashhelper;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
-import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -16,7 +15,6 @@ import java.util.List;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
@@ -25,26 +23,27 @@ import net.runelite.client.util.QuantityFormatter;
 
 public class SplashSessionHistoryBox extends JPanel
 {
+	private static final String CARET_RIGHT = "\u25B6"; // ▶
+	private static final String CARET_DOWN = "\u25BC";  // ▼
+	
 	private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
 	private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("EEE");
 	private static final DateTimeFormatter FULL_FORMAT = DateTimeFormatter.ofPattern("EEE HH:mm");
 
 	private final SplashSession session;
-	private final ItemManager itemManager;
-	private final List<int[]> runeUsage;
+	private final LocalDate sessionDate;
 	private final JPanel titlePanel;
+	private final JLabel caretLabel;
 	private final JLabel titleLabel;
-	private final JLabel collapseIndicator;
 	private final JPanel contentPanel;
-	private SplashSupplyTrackerBox supplyBox;
+	private final SplashSupplyTrackerBox supplyBox;
 	private boolean collapsed;
 
-	public SplashSessionHistoryBox(SplashSession session, ItemManager itemManager, List<int[]> runeUsage, boolean startCollapsed)
+	public SplashSessionHistoryBox(SplashSession session, boolean startCollapsed, ItemManager itemManager, List<int[]> runeUsage)
 	{
 		this.session = session;
-		this.itemManager = itemManager;
-		this.runeUsage = runeUsage;
 		this.collapsed = startCollapsed;
+		this.sessionDate = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault()).toLocalDate();
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 		setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -56,16 +55,21 @@ public class SplashSessionHistoryBox extends JPanel
 		titlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
 		titlePanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
+		// Caret indicator on the left
+		caretLabel = new JLabel();
+		caretLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		caretLabel.setFont(FontManager.getRunescapeSmallFont());
+		caretLabel.setBorder(new EmptyBorder(0, 0, 0, 5));
+
 		titleLabel = new JLabel();
 		titleLabel.setForeground(Color.ORANGE);
 		titleLabel.setFont(FontManager.getRunescapeBoldFont());
-		titlePanel.add(titleLabel, BorderLayout.WEST);
 
-		// Collapse indicator
-		collapseIndicator = new JLabel();
-		collapseIndicator.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		collapseIndicator.setFont(FontManager.getRunescapeBoldFont());
-		titlePanel.add(collapseIndicator, BorderLayout.EAST);
+		JPanel leftPanel = new JPanel(new BorderLayout());
+		leftPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+		leftPanel.add(caretLabel, BorderLayout.WEST);
+		leftPanel.add(titleLabel, BorderLayout.CENTER);
+		titlePanel.add(leftPanel, BorderLayout.WEST);
 
 		titlePanel.addMouseListener(new MouseAdapter()
 		{
@@ -79,12 +83,14 @@ public class SplashSessionHistoryBox extends JPanel
 			public void mouseEntered(MouseEvent e)
 			{
 				titlePanel.setBackground(ColorScheme.DARKER_GRAY_HOVER_COLOR);
+				leftPanel.setBackground(ColorScheme.DARKER_GRAY_HOVER_COLOR);
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e)
 			{
 				titlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+				leftPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
 			}
 		});
 
@@ -92,44 +98,43 @@ public class SplashSessionHistoryBox extends JPanel
 
 		// Content panel with session details
 		contentPanel = new JPanel();
-		contentPanel.setLayout(new GridLayout(0, 1, 0, 4));
+		contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
 		contentPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+
+		// Stats panel
+		JPanel statsPanel = new JPanel(new GridLayout(0, 1, 0, 4));
+		statsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		statsPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
 		// Add stat rows
-		addStatRow("Player:", session.getPlayerName() != null ? session.getPlayerName() : "-");
-		addStatRow("Spell:", session.getSpell() != null ? session.getSpell().getName() : "Unknown");
-		addStatRow("World:", String.valueOf(session.getWorld()));
-		addStatRow("Knight:", session.isStickyKnight() ? "STICKY" : "Normal");
-		addStatRow("Time:", formatDuration(session.getSessionDurationSeconds()));
-		addStatRow("Casts:", String.valueOf(session.getSpellsCast()));
-		addStatRow("XP Gained:", formatNumber(session.getMagicXpGained()));
-		addStatRow("XP/Hour:", formatNumber((int) session.getXpPerHour()) + "/hr");
+		addStatRow(statsPanel, "Player:", session.getPlayerName() != null ? session.getPlayerName() : "-");
+		addStatRow(statsPanel, "Spell:", session.getSpell() != null ? session.getSpell().getName() : "Unknown");
+		addStatRow(statsPanel, "World:", String.valueOf(session.getWorld()));
+		addStatRow(statsPanel, "Knight:", session.isStickyKnight() ? "STICKY" : "Normal");
+		addStatRow(statsPanel, "Time:", formatDuration(session.getSessionDurationSeconds()));
+		addStatRow(statsPanel, "Casts:", String.valueOf(session.getSpellsCast()));
+		addStatRow(statsPanel, "XP Gained:", formatNumber(session.getMagicXpGained()));
+		addStatRow(statsPanel, "XP/Hour:", formatNumber((int) session.getXpPerHour()) + "/hr");
+
+		contentPanel.add(statsPanel);
+
+		// Supply box for runes used
+		supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
+		supplyBox.buildItems(runeUsage, session.getSpellsCast());
+		contentPanel.add(supplyBox);
 
 		add(contentPanel);
 
-		// Add supply box for runes used
-		supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
-		if (runeUsage != null && !runeUsage.isEmpty())
-		{
-			supplyBox.buildItems(runeUsage, session.getSpellsCast());
-		}
-		add(supplyBox);
-
 		// Set initial state
 		updateTitle();
-		updateCaretIndicator();
 		contentPanel.setVisible(!collapsed);
-		supplyBox.setVisible(!collapsed);
 	}
 
 	private void toggleCollapse()
 	{
 		collapsed = !collapsed;
 		contentPanel.setVisible(!collapsed);
-		supplyBox.setVisible(!collapsed);
 		updateTitle();
-		updateCaretIndicator();
 		revalidate();
 		repaint();
 	}
@@ -140,9 +145,7 @@ public class SplashSessionHistoryBox extends JPanel
 		{
 			collapsed = false;
 			contentPanel.setVisible(true);
-			supplyBox.setVisible(true);
 			updateTitle();
-			updateCaretIndicator();
 			revalidate();
 			repaint();
 		}
@@ -154,9 +157,7 @@ public class SplashSessionHistoryBox extends JPanel
 		{
 			collapsed = true;
 			contentPanel.setVisible(false);
-			supplyBox.setVisible(false);
 			updateTitle();
-			updateCaretIndicator();
 			revalidate();
 			repaint();
 		}
@@ -169,52 +170,40 @@ public class SplashSessionHistoryBox extends JPanel
 
 	private void updateTitle()
 	{
-		LocalDateTime start = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault());
-		Instant endInstant = session.getEndTime() != null ? session.getEndTime() : Instant.now();
-		LocalDateTime end = LocalDateTime.ofInstant(endInstant, ZoneId.systemDefault());
-		LocalDate today = LocalDate.now();
-		LocalDate sessionDate = start.toLocalDate();
-		boolean isSameDay = sessionDate.equals(today);
+		// Update caret
+		caretLabel.setText(collapsed ? CARET_RIGHT : CARET_DOWN);
 
-		if (collapsed)
+		LocalDate today = LocalDate.now();
+		boolean isSameDay = sessionDate.equals(today);
+		LocalDateTime start = LocalDateTime.ofInstant(session.getStartTime(), ZoneId.systemDefault());
+
+		if (isSameDay)
 		{
-			if (isSameDay)
-			{
-				// Same day collapsed: "<start time> - <duration>"
-				String startTime = start.format(TIME_FORMAT);
-				String duration = formatDuration(session.getSessionDurationSeconds());
-				titleLabel.setText(startTime + " - " + duration);
-			}
-			else
-			{
-				// Different day collapsed: "<day> - <duration> session"
-				String day = start.format(DAY_FORMAT);
-				String duration = formatDuration(session.getSessionDurationSeconds());
-				titleLabel.setText(day + " - " + duration + " session");
-			}
+			// Same day: "<start time> - <duration>"
+			String startTime = start.format(TIME_FORMAT);
+			String duration = formatDuration(session.getSessionDurationSeconds());
+			titleLabel.setText(startTime + " - " + duration);
+		}
+		else if (collapsed)
+		{
+			// Collapsed (different day): "<day> - <duration> session"
+			String day = start.format(DAY_FORMAT);
+			String duration = formatDuration(session.getSessionDurationSeconds());
+			titleLabel.setText(day + " - " + duration + " session");
 		}
 		else
 		{
-			// Expanded: "<day> <start time> - <day> <end time>"
+			// Expanded (different day): "<day> <start time> - <day> <end time>"
+			Instant endInstant = session.getEndTime() != null ? session.getEndTime() : Instant.now();
+			LocalDateTime end = LocalDateTime.ofInstant(endInstant, ZoneId.systemDefault());
+			
 			String startStr = start.format(FULL_FORMAT);
 			String endStr = end.format(FULL_FORMAT);
 			titleLabel.setText(startStr + " - " + endStr);
 		}
 	}
 
-	private void updateCaretIndicator()
-	{
-		if (collapsed)
-		{
-			collapseIndicator.setText("▸"); // Right-pointing caret
-		}
-		else
-		{
-			collapseIndicator.setText("▾"); // Down-pointing caret
-		}
-	}
-
-	private void addStatRow(String labelText, String value)
+	private void addStatRow(JPanel panel, String labelText, String value)
 	{
 		JPanel rowPanel = new JPanel(new BorderLayout());
 		rowPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -229,7 +218,7 @@ public class SplashSessionHistoryBox extends JPanel
 
 		rowPanel.add(label, BorderLayout.WEST);
 		rowPanel.add(valueLabel, BorderLayout.EAST);
-		contentPanel.add(rowPanel);
+		panel.add(rowPanel);
 	}
 
 	private String formatDuration(long seconds)
