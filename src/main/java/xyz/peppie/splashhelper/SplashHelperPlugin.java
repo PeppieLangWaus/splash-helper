@@ -941,17 +941,6 @@ public class SplashHelperPlugin extends Plugin
 		}
 	}
 
-	@Subscribe
-	public void onHitsplatApplied(HitsplatApplied event)
-	{
-		// Track pickpocket hitsplats on the knight
-		if (tileManager.getCurrentTarget() != null && event.getActor() == tileManager.getCurrentTarget())
-		{
-			// Someone hit the knight (could be pickpocket or splash)
-			// We primarily track via animation, so this is supplementary
-		}
-	}
-
 	
 	/**
 	 * Calculate the total cost of runes used based on GE prices.
