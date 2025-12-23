@@ -34,6 +34,11 @@ tasks.withType(JavaCompile).configureEach {
 	options.release.set(11)
 }
 
+// Exclude all LWJGL native dependencies (they're not needed for compilation)
+configurations.configureEach {
+	exclude group: 'org.lwjgl'
+}
+
 tasks.register('shadowJar', Jar) {
 	manifest {
 		attributes('Main-Class': 'xyz.peppie.splashhelper.SplashHelperPluginTest', 'Multi-Release': true)
