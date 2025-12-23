@@ -1,4 +1,4 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.ui;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -9,8 +9,8 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
-
 import net.runelite.client.game.ItemManager;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.util.AsyncBufferedImage;

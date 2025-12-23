@@ -1,5 +1,7 @@
 package xyz.peppie.splashhelper;
 
+import xyz.peppie.splashhelper.model.TargetNpc;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import java.awt.Color;
 import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
@@ -161,6 +163,18 @@ public interface SplashHelperConfig extends Config
 		return new Color(255, 0, 0, 80); // Semi-transparent red
 	}
 
+	@Range(min = 1, max = 30)
+	@ConfigItem(
+		keyName = "notificationDuration",
+		name = "Notification Duration",
+		description = "How long notifications are displayed (in seconds)",
+		section = notificationSection
+	)
+	default int notificationDuration()
+	{
+		return 5;
+	}
+
 	// ==================== Statistics Settings ====================
 
 	@ConfigSection(
@@ -203,6 +217,17 @@ public interface SplashHelperConfig extends Config
 	default int playerCountRadius()
 	{
 		return 5;
+	}
+
+	@ConfigItem(
+		keyName = "enableGriefPrevention",
+		name = "Enable Grief Prevention",
+		description = "Show warning overlay if Accept Aid is on or Private Chat is set to All",
+		section = statisticsSection
+	)
+	default boolean enableGriefPrevention()
+	{
+		return true;
 	}
 
 	@ConfigItem(

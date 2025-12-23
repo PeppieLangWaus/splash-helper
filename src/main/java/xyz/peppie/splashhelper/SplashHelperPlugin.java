@@ -4,8 +4,6 @@ import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.Instant;
-import java.awt.TrayIcon;
-import java.awt.Color;
 import java.util.List;
 import javax.inject.Inject;
 import lombok.Getter;
@@ -17,7 +15,6 @@ import net.runelite.api.GameState;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
-import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.Tile;
@@ -27,17 +24,12 @@ import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.StatChanged;
-import net.runelite.client.Notifier;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.config.FlashNotification;
-import net.runelite.client.config.Notification;
-import net.runelite.client.config.NotificationSound;
-import net.runelite.client.config.RequestFocusType;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -46,11 +38,19 @@ import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
+import xyz.peppie.splashhelper.overlays.GriefPreventionOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
+import xyz.peppie.splashhelper.overlays.VisualNotificationOverlay;
+import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.service.KnightDetector;
+import xyz.peppie.splashhelper.service.NotificationService;
 import xyz.peppie.splashhelper.service.PlayerTracker;
 import xyz.peppie.splashhelper.service.RuneCalculator;
 import xyz.peppie.splashhelper.service.SessionManager;
+import xyz.peppie.splashhelper.service.TileManager;
+import xyz.peppie.splashhelper.ui.SplashStatisticsPanel;
+import xyz.peppie.splashhelper.util.Constants;
 
 @Slf4j
 @PluginDescriptor(
@@ -76,10 +76,13 @@ public class SplashHelperPlugin extends Plugin
 	private BoundaryTileOverlay boundaryOverlay;
 
 	@Inject
-	private ClientToolbar clientToolbar;
+	private VisualNotificationOverlay visualNotificationOverlay;
 
 	@Inject
-	private Notifier notifier;
+	private GriefPreventionOverlay griefPreventionOverlay;
+
+	@Inject
+	private ClientToolbar clientToolbar;
 
 	@Inject
 	private ItemManager itemManager;
@@ -97,6 +100,12 @@ public class SplashHelperPlugin extends Plugin
 	@Inject
 	private PlayerTracker playerTracker;
 
+	@Inject
+	private NotificationService notificationService;
+
+	@Inject
+	private TileManager tileManager;
+
 	// Statistics panel
 	private SplashStatisticsPanel statisticsPanel;
 	private NavigationButton navButton;
@@ -106,33 +115,16 @@ public class SplashHelperPlugin extends Plugin
 
 	private boolean hasNotified = false;
 	
-	@Getter
-	private WorldPoint boundaryTile = null;
-	@Getter
-	private WorldPoint knightTile1 = null;
-	@Getter
-	private WorldPoint knightTile2 = null;
-	@Getter
-	private Actor currentTarget = null;
-	private boolean boundaryNotified = false;
+	// Deferred mutual aggro check
+	private Actor pendingTarget = null;
+	private int pendingTicks = 0;
+	private static final int MUTUAL_AGGRO_CHECK_TICKS = 3;
 	
-	// Movement tracking
-	private WorldPoint lastNpcPosition = null;
-	private int movementCount = 0;
-	private Instant trackingStartTime = null;
-	@Getter
-	private double movementsPerMinute = 0.0;
-
-	// hasEscaped state machine
-	@Getter
-	private boolean hasEscaped = false;
-	private int boundaryTickCounter = 0;
-	private static final int BOUNDARY_DEBOUNCE_TICKS = 5;
-	private boolean notificationsMuted = false;
+	// Track previous game state for welcome message
+	private GameState previousGameState = null;
 
 	// Session tracking delegated to SessionManager service
 	private Instant lastStatsSample = null;
-	private boolean isSplashing = false;
 
 	// Session delegation methods
 	public SplashSession getCurrentSession()
@@ -153,6 +145,50 @@ public class SplashHelperPlugin extends Plugin
 		return sessionManager.getSessionHistory();
 	}
 
+	// Tile delegation methods - forward to TileManager
+	public WorldPoint getBoundaryTile()
+	{
+		return tileManager.getBoundaryTile();
+	}
+
+	public WorldPoint getKnightTile1()
+	{
+		return tileManager.getKnightTile1();
+	}
+
+	public WorldPoint getKnightTile2()
+	{
+		return tileManager.getKnightTile2();
+	}
+
+	public boolean isHasEscaped()
+	{
+		return tileManager.isHasEscaped();
+	}
+
+	public double getMovementsPerMinute()
+	{
+		return tileManager.getMovementsPerMinute();
+	}
+
+	public Actor getCurrentTarget()
+	{
+		return tileManager.getCurrentTarget();
+	}
+
+	/**
+	 * Trigger visual notification overlay.
+	 * Called by NotificationService when visual notifications are enabled.
+	 */
+	public void triggerVisualNotification()
+	{
+		if (config != null)
+		{
+			showVisualNotification = true;
+			visualNotificationEnd = Instant.now().plusSeconds(config.notificationDuration());
+		}
+	}
+
 	// Cached values for UI (updated on client thread)
 	@Getter
 	private volatile int cachedRemainingCasts = 0;
@@ -160,6 +196,8 @@ public class SplashHelperPlugin extends Plugin
 	private volatile java.util.Set<Integer> cachedInfiniteRunes = new java.util.HashSet<>();
 	@Getter
 	private volatile java.util.List<int[]> cachedActualRuneUsage = new java.util.ArrayList<>();
+	@Getter
+	private volatile long cachedRuneCost = 0;
 
 	// Player tracking delegated to PlayerTracker service
 	public int getCurrentPickpocketerCount()
@@ -172,7 +210,6 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private boolean showVisualNotification = false;
 	private Instant visualNotificationEnd = null;
-	private static final int VISUAL_NOTIFICATION_DURATION_MS = 2000;
 
 	@Provides
 	SplashHelperConfig provideConfig(ConfigManager configManager)
@@ -184,10 +221,14 @@ public class SplashHelperPlugin extends Plugin
 	protected void startUp() throws Exception
 	{
 		log.info("Splash Helper started!");
-		overlay.setPlugin(this);
-		boundaryOverlay.setPlugin(this);
+		overlay.setPlugin(this, tileManager);
 		overlayManager.add(overlay);
+		
+		// Set up visual notification callback
+		notificationService.setVisualNotificationCallback(this::triggerVisualNotification);
 		overlayManager.add(boundaryOverlay);
+		overlayManager.add(visualNotificationOverlay);
+		overlayManager.add(griefPreventionOverlay);
 
 		// Create statistics panel
 		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager);
@@ -210,6 +251,8 @@ public class SplashHelperPlugin extends Plugin
 		log.info("Splash Helper stopped!");
 		overlayManager.remove(overlay);
 		overlayManager.remove(boundaryOverlay);
+		overlayManager.remove(visualNotificationOverlay);
+		overlayManager.remove(griefPreventionOverlay);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -220,20 +263,8 @@ public class SplashHelperPlugin extends Plugin
 		
 		timerEnd = null;
 		hasNotified = false;
-		boundaryTile = null;
-		knightTile1 = null;
-		knightTile2 = null;
-		currentTarget = null;
-		boundaryNotified = false;
-		lastNpcPosition = null;
-		movementCount = 0;
-		trackingStartTime = null;
-		movementsPerMinute = 0.0;
-		hasEscaped = false;
-		boundaryTickCounter = 0;
-		notificationsMuted = false;
+		tileManager.reset();
 		lastStatsSample = null;
-		isSplashing = false;
 		playerTracker.reset();
 		showVisualNotification = false;
 		visualNotificationEnd = null;
@@ -242,13 +273,22 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged gameStateChanged)
 	{
-		if (gameStateChanged.getGameState() == GameState.LOGGED_IN)
+		GameState currentState = gameStateChanged.getGameState();
+		
+		// Only show welcome message when actually logging in or hopping worlds
+		// (not when teleporting, which also triggers LOGGED_IN)
+		if (currentState == GameState.LOGGED_IN)
 		{
-			if (config.enableWelcomeMessage())
+			if (config.enableWelcomeMessage() && 
+				(previousGameState == GameState.LOGIN_SCREEN || 
+				 previousGameState == GameState.HOPPING ||
+				 previousGameState == GameState.LOGGING_IN))
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Splash Helper is active!", null);
 			}
 		}
+		
+		previousGameState = currentState;
 	}
 
 	@Subscribe
@@ -315,187 +355,22 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		// Update visual notification state
-		if (showVisualNotification && visualNotificationEnd != null)
-		{
-			if (Instant.now().isAfter(visualNotificationEnd))
-			{
-				showVisualNotification = false;
-				visualNotificationEnd = null;
-			}
-		}
-
-		// Check if timer has expired and send notification
-		if (timerEnd != null && !hasNotified)
-		{
-			Duration remaining = Duration.between(Instant.now(), timerEnd);
-			if (remaining.isNegative() || remaining.isZero())
-			{
-				sendTimerNotification("Splash timer has expired!");
-				hasNotified = true;
-				log.info("Timer expired - notification sent");
-			}
-		}
-
-		// Check HP threshold when knight can attack (hasEscaped is true)
-		if (hasEscaped && config.enableHpNotification())
-		{
-			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
-			if (currentHp <= config.hpThreshold())
-			{
-				sendHpNotification("HP is low (" + currentHp + ")! Knight may be attacking you!");
-			}
-		}
+		updateVisualNotificationState();
+		checkTimerExpiration();
+		checkHpThreshold();
 
 		if (client.getTopLevelWorldView() == null)
 		{
 			return;
 		}
 
-		// Check knight position for hasEscaped state machine and boundary notifications
-		if (currentTarget != null && currentTarget instanceof NPC)
+		if (tileManager.updateKnightPositionTracking())
 		{
-			NPC knight = (NPC) currentTarget;
-			WorldPoint knightPos = knight.getWorldLocation();
-			
-			if (knightPos != null)
-			{
-				boolean onKnightTile = (knightTile1 != null && knightPos.equals(knightTile1)) ||
-									   (knightTile2 != null && knightPos.equals(knightTile2));
-				boolean onBoundary = boundaryTile != null && knightPos.equals(boundaryTile);
-				
-				// hasEscaped state machine
-				if (onBoundary)
-				{
-					if (!hasEscaped)
-					{
-						hasEscaped = true;
-						boundaryTickCounter = 0;
-						
-						// Send notification only once when entering boundary
-						if (!boundaryNotified && config.enableBoundaryNotification())
-						{
-							sendBoundaryNotification("Knight reached boundary tile!");
-							boundaryNotified = true;
-						}
-					}
-					else
-					{
-						boundaryTickCounter++;
-					}
-				}
-				else if (onKnightTile)
-				{
-					// Knight returned to original tile
-					if (hasEscaped)
-					{
-						hasEscaped = false;
-						notificationsMuted = false;
-						boundaryNotified = false;
-						boundaryTickCounter = 0;
-					}
-				}
-				else
-				{
-					// Knight is on some other tile (not boundary, not knight tiles)
-					if (hasEscaped)
-					{
-						boundaryTickCounter++;
-						// After 5 ticks on a non-valid tile, allow re-notification
-						if (boundaryTickCounter >= BOUNDARY_DEBOUNCE_TICKS)
-						{
-							boundaryNotified = false;
-						}
-					}
-				}
-			}
+			notificationService.sendBoundaryNotification("Knight reached boundary tile!");
 		}
-		
-		// Track NPC movement between Knight Tile 1 and Knight Tile 2
-		if (knightTile1 != null && knightTile2 != null && currentTarget != null)
-		{
-			WorldPoint currentPosition = currentTarget.getWorldLocation();
-			
-			if (currentPosition != null)
-			{
-				// Check if NPC is on either Knight Tile
-				boolean onTile1 = currentPosition.equals(knightTile1);
-				boolean onTile2 = currentPosition.equals(knightTile2);
-				
-				if (onTile1 || onTile2)
-				{
-					// Initialize tracking on first detection
-					if (trackingStartTime == null)
-					{
-						trackingStartTime = Instant.now();
-						lastNpcPosition = currentPosition;
-					}
-					// Check if NPC moved between tiles
-					else if (lastNpcPosition != null && !currentPosition.equals(lastNpcPosition))
-					{
-						// Only count movements between the two tiles
-						boolean wasOnTile1 = lastNpcPosition.equals(knightTile1);
-						boolean wasOnTile2 = lastNpcPosition.equals(knightTile2);
-						
-						if ((wasOnTile1 && onTile2) || (wasOnTile2 && onTile1))
-						{
-							movementCount++;
-							sessionManager.recordKnightMovement();
-						}
-						
-						lastNpcPosition = currentPosition;
-					}
-					
-					// Calculate movements per minute
-					if (trackingStartTime != null)
-					{
-						Duration trackingDuration = Duration.between(trackingStartTime, Instant.now());
-						double minutes = trackingDuration.toMillis() / 60000.0;
-						
-						if (minutes > 0)
-						{
-							movementsPerMinute = movementCount / minutes;
-						}
-					}
-				}
-				// Update last position if NPC is on either tile
-				if (onTile1 || onTile2)
-				{
-					lastNpcPosition = currentPosition;
-				}
-			}
-		}
+		tileManager.trackKnightMovement();
 
-		// Session statistics sampling and panel update
-		if (config.enableStatistics())
-		{
-			// Update cached values on client thread for UI access
-			cachedRemainingCasts = getRemainingCastsForCurrentSpell();
-			cachedInfiniteRunes = getInfiniteRunesFromEquipment();
-			cachedActualRuneUsage = getActualRuneUsage();
-			
-			Instant now = Instant.now();
-			if (sessionManager.hasActiveSession())
-			{
-				// Check for session timeout via service
-				if (sessionManager.checkSessionTimeout())
-				{
-					isSplashing = false;
-				}
-				else if (lastStatsSample == null || 
-					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
-				{
-					sampleSessionStatistics();
-					lastStatsSample = now;
-				}
-			}
-			
-			// Update statistics panel
-			if (statisticsPanel != null)
-			{
-				statisticsPanel.updatePanel();
-			}
-		}
+		updateSessionStatistics();
 	}
 
 	@Subscribe
@@ -506,14 +381,8 @@ public class SplashHelperPlugin extends Plugin
 			String sourceName = event.getSource().getName();
 			String playerName = client.getLocalPlayer().getName();
 			if (sourceName != null && sourceName.equalsIgnoreCase(playerName)) {
-				String interactedNpcName = cleanNpcName(event.getTarget().getName());
-	
-				// Check if NPC is allowed and matches configured name
-				if (isAllowedNpc(interactedNpcName) && interactedNpcName.equalsIgnoreCase(config.targetNpc().getNpcName()))
-				{
-					currentTarget = event.getTarget();
-					startTimer();	
-				}
+				// Session start moved to onAnimationChanged to detect actual spell casting
+				// This works for both normal combat and safe-spotting scenarios
 			}
 		}
 	}
@@ -521,16 +390,17 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onActorDeath(ActorDeath event)
 	{
-		if (event.getActor() == currentTarget)
+		if (event.getActor() == tileManager.getCurrentTarget())
 		{
-			sendNotification("Actor died, resetting timer");
-			currentTarget = null;
+			notificationService.sendNotification("Actor died, resetting timer");
+			tileManager.setCurrentTarget(null);
 			timerEnd = null;
 			hasNotified = false;
 		}
 	}
 
 	@Subscribe
+	@SuppressWarnings("deprecation")
 	public void onMenuOpened(MenuOpened event)
 	{
 		// Add "Knight Boundary" submenu to tile right-click menu
@@ -551,7 +421,7 @@ public class SplashHelperPlugin extends Plugin
 				Menu submenu = boundaryMenu.createSubMenu();
 				
 				// Add Set/Unset option to submenu
-				if (boundaryTile == null)
+				if (tileManager.getBoundaryTile() == null)
 				{
 					submenu.createMenuEntry(-1)
 						.setOption("Set")
@@ -588,7 +458,7 @@ public class SplashHelperPlugin extends Plugin
 				Menu submenu1 = tile1Menu.createSubMenu();
 				
 				// Add Set/Unset option to submenu
-				if (knightTile1 == null)
+				if (tileManager.getKnightTile1() == null)
 				{
 					submenu1.createMenuEntry(-1)
 						.setOption("Set")
@@ -625,7 +495,7 @@ public class SplashHelperPlugin extends Plugin
 				Menu submenu2 = tile2Menu.createSubMenu();
 				
 				// Add Set/Unset option to submenu
-				if (knightTile2 == null)
+				if (tileManager.getKnightTile2() == null)
 				{
 					submenu2.createMenuEntry(-1)
 						.setOption("Set")
@@ -670,26 +540,25 @@ public class SplashHelperPlugin extends Plugin
 		
 		if (tile != null)
 		{
-			boundaryTile = tile.getWorldLocation();
-			boundaryNotified = false;
-			log.info("✓ Boundary tile successfully set to: {}", boundaryTile);
-			sendNotification("Boundary tile set at: " + boundaryTile.getX() + ", " + boundaryTile.getY());
+			WorldPoint location = tile.getWorldLocation();
+			tileManager.setBoundaryTile(location);
+			log.info("✓ Boundary tile successfully set to: {}", location);
+			notificationService.sendNotification("Boundary tile set at: " + location.getX() + ", " + location.getY());
 		}
 	}
 
 	private void onBoundaryUnsetClick(MenuEntry entry)
 	{
-		boundaryTile = null;
-		boundaryNotified = false;
+		tileManager.unsetBoundaryTile();
 		log.info("✓ Boundary tile unset");
-		sendNotification("Boundary tile unset");
+		notificationService.sendNotification("Boundary tile unset");
 	}
 
 	private void onBoundaryColorClick(MenuEntry entry)
 	{
 		// The color picker is automatically shown by RuneLite's config system
 		// when the user changes the boundaryTileColor config item
-		sendNotification("Change boundary color in the plugin settings");
+		notificationService.sendNotification("Change boundary color in the plugin settings");
 	}
 
 	private void onKnightTile1SetClick(MenuEntry entry)
@@ -704,29 +573,23 @@ public class SplashHelperPlugin extends Plugin
 		
 		if (tile != null)
 		{
-			knightTile1 = tile.getWorldLocation();
-			log.info("✓ Knight Tile 1 successfully set to: {}", knightTile1);
-			sendNotification("Knight Tile 1 set at: " + knightTile1.getX() + ", " + knightTile1.getY());
-			
-			// Initialize tracking if both tiles are set
-			if (knightTile1 != null && knightTile2 != null)
-			{
-				resetMovementTracking();
-			}
+			WorldPoint location = tile.getWorldLocation();
+			tileManager.setKnightTile1(location);
+			log.info("✓ Knight Tile 1 successfully set to: {}", location);
+			notificationService.sendNotification("Knight Tile 1 set at: " + location.getX() + ", " + location.getY());
 		}
 	}
 
 	private void onKnightTile1UnsetClick(MenuEntry entry)
 	{
-		knightTile1 = null;
-		resetMovementTracking();
+		tileManager.unsetKnightTile1();
 		log.info("✓ Knight Tile 1 unset");
-		sendNotification("Knight Tile 1 unset");
+		notificationService.sendNotification("Knight Tile 1 unset");
 	}
 
 	private void onKnightTile1ColorClick(MenuEntry entry)
 	{
-		sendNotification("Change Knight Tile 1 color in the plugin settings");
+		notificationService.sendNotification("Change Knight Tile 1 color in the plugin settings");
 	}
 
 	private void onKnightTile2SetClick(MenuEntry entry)
@@ -741,39 +604,26 @@ public class SplashHelperPlugin extends Plugin
 		
 		if (tile != null)
 		{
-			knightTile2 = tile.getWorldLocation();
-			log.info("✓ Knight Tile 2 successfully set to: {}", knightTile2);
-			sendNotification("Knight Tile 2 set at: " + knightTile2.getX() + ", " + knightTile2.getY());
-			
-			// Initialize tracking if both tiles are set
-			if (knightTile1 != null && knightTile2 != null)
-			{
-				resetMovementTracking();
-			}
+			WorldPoint location = tile.getWorldLocation();
+			tileManager.setKnightTile2(location);
+			log.info("✓ Knight Tile 2 successfully set to: {}", location);
+			notificationService.sendNotification("Knight Tile 2 set at: " + location.getX() + ", " + location.getY());
 		}
 	}
 
 	private void onKnightTile2UnsetClick(MenuEntry entry)
 	{
-		knightTile2 = null;
-		resetMovementTracking();
+		tileManager.unsetKnightTile2();
 		log.info("✓ Knight Tile 2 unset");
-		sendNotification("Knight Tile 2 unset");
+		notificationService.sendNotification("Knight Tile 2 unset");
 	}
 
 	private void onKnightTile2ColorClick(MenuEntry entry)
 	{
-		sendNotification("Change Knight Tile 2 color in the plugin settings");
+		notificationService.sendNotification("Change Knight Tile 2 color in the plugin settings");
 	}
 
-	private void resetMovementTracking()
-	{
-		lastNpcPosition = null;
-		movementCount = 0;
-		trackingStartTime = null;
-		movementsPerMinute = 0.0;
-	}
-
+	
 	/**
 	 * Checks if an NPC is allowed to be set as a target.
 	 * @param npcName The cleaned NPC name
@@ -796,13 +646,13 @@ public class SplashHelperPlugin extends Plugin
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
 		// When hasEscaped is true and player interacts, mute notifications until knight returns
-		if (hasEscaped && !notificationsMuted)
+		if (tileManager.isHasEscaped() && !notificationService.areNotificationsMuted())
 		{
 			// Any click interaction while escaped mutes notifications
 			if (event.getMenuAction() != MenuAction.CANCEL &&
 				event.getMenuAction() != MenuAction.WALK)
 			{
-				notificationsMuted = true;
+				notificationService.muteNotifications();
 				log.info("Notifications muted - player interacted while knight escaped");
 			}
 		}
@@ -819,7 +669,6 @@ public class SplashHelperPlugin extends Plugin
 
 		// Get the NPC that was clicked
 		String targetName = cleanNpcName(event.getMenuTarget());
-		Actor clickedActor = client.getTopLevelWorldView().npcs().byIndex(event.getId());
 
 		// Check if this is the NPC we're tracking and if it's allowed
 		String configuredNpc = config.targetNpc().getNpcName();
@@ -827,8 +676,14 @@ public class SplashHelperPlugin extends Plugin
 		{
 			if (isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
 			{
-				startTimer();
-				currentTarget = clickedActor;
+				// Only restart timer if session is already active
+				// Session start is handled by onInteractingChanged
+				if (timerEnd != null && timerEnd.isAfter(Instant.now()))
+				{
+					// Restart timer if clicking knight during active session
+					startTimer();
+					log.info("Timer restarted by clicking knight");
+				}
 			}
 		}
 	}
@@ -876,101 +731,6 @@ public class SplashHelperPlugin extends Plugin
 		return cleaned.trim();
 	}
 
-	private void sendNotification(String message)
-	{
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, this.getName(),  message, null);
-		// Send notification with sound using RuneLite's notifier
-		Notification notification = new Notification(
-			true,
-			true,
-			false,
-			false,
-			TrayIcon.MessageType.WARNING,
-			RequestFocusType.OFF,
-			NotificationSound.CUSTOM,
-			null,
-			client.getMusicVolume(),
-			1,
-			true,
-			FlashNotification.DISABLED,
-			Color.GREEN,
-			false
-			);
-		notifier.notify(notification, message);
-	}
-
-	private void sendTimerNotification(String message)
-	{
-		if (!config.enableTimerNotification())
-		{
-			return;
-		}
-		if (notificationsMuted)
-		{
-			return;
-		}
-		sendNotificationInternal(message);
-	}
-
-	private void sendBoundaryNotification(String message)
-	{
-		if (!config.enableBoundaryNotification())
-		{
-			return;
-		}
-		if (notificationsMuted)
-		{
-			return;
-		}
-		sendNotificationInternal(message);
-	}
-
-	private void sendHpNotification(String message)
-	{
-		if (!config.enableHpNotification())
-		{
-			return;
-		}
-		if (notificationsMuted)
-		{
-			return;
-		}
-		sendNotificationInternal(message);
-	}
-
-	private void sendNotificationInternal(String message)
-	{
-		client.addChatMessage(ChatMessageType.GAMEMESSAGE, this.getName(), message, null);
-		
-		if (config.useVisualNotification())
-		{
-			// Trigger visual notification
-			showVisualNotification = true;
-			visualNotificationEnd = Instant.now().plusMillis(VISUAL_NOTIFICATION_DURATION_MS);
-		}
-		else
-		{
-			// Send sound notification
-			Notification notification = new Notification(
-				true,
-				true,
-				false,
-				false,
-				TrayIcon.MessageType.WARNING,
-				RequestFocusType.OFF,
-				NotificationSound.CUSTOM,
-				null,
-				client.getMusicVolume(),
-				1,
-				true,
-				FlashNotification.DISABLED,
-				Color.GREEN,
-				false
-				);
-			notifier.notify(notification, message);
-		}
-	}
-
 	// ==================== Session Management ====================
 
 	private void startSession(SplashSpell spell)
@@ -990,23 +750,12 @@ public class SplashHelperPlugin extends Plugin
 
 		sessionManager.startSession(playerName, spell, timerEnd, world, stickyKnight);
 
-		isSplashing = true;
 		lastStatsSample = Instant.now();
 		
 		log.info("Splash session started for {} using {}", playerName, spell);
 	}
 
-	private void finalizeSession()
-	{
-		sessionManager.finalizeSession();
-		isSplashing = false;
-		lastStatsSample = null;
-		
-		// End the timer when session ends
-		timerEnd = null;
-		hasNotified = false;
-	}
-
+	
 	private void sampleSessionStatistics()
 	{
 		SplashSession session = sessionManager.getCurrentSession();
@@ -1036,7 +785,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 	}
 
-	private int countNearbyPlayers(int radius)
+	public int countNearbyPlayers(int radius)
 	{
 		if (client.getTopLevelWorldView() == null || client.getLocalPlayer() == null)
 		{
@@ -1107,7 +856,7 @@ public class SplashHelperPlugin extends Plugin
 		{
 			return session.getSpell();
 		}
-		return config.selectedSpell();
+		return config != null ? config.selectedSpell() : null;
 	}
 
 	/**
@@ -1116,7 +865,7 @@ public class SplashHelperPlugin extends Plugin
 	 */
 	private boolean isStickyKnight()
 	{
-		return knightDetector.isStickyKnight(currentTarget);
+		return knightDetector.isStickyKnight(tileManager.getCurrentTarget());
 	}
 
 	// ==================== Event Handlers ====================
@@ -1125,6 +874,43 @@ public class SplashHelperPlugin extends Plugin
 	public void onAnimationChanged(AnimationChanged event)
 	{
 		Actor actor = event.getActor();
+
+		// Check if local player is casting a spell
+		if (actor == client.getLocalPlayer())
+		{
+			int animationId = actor.getAnimation();
+			
+			// Common magic casting animation IDs
+			boolean isCasting = (animationId >= 711 && animationId <= 717) ||  // Standard spells
+							   (animationId >= 1162 && animationId <= 1167) || // Ancient spells
+							   (animationId >= 1978 && animationId <= 1993) || // Lunar spells
+							   (Constants.isStandardSpellAnimation(animationId));
+			
+			if (isCasting)
+			{
+				// Get who the player is currently interacting with
+				Actor interactingTarget = client.getLocalPlayer().getInteracting();
+				
+				if (interactingTarget != null && interactingTarget.getName() != null)
+				{
+					String targetName = cleanNpcName(interactingTarget.getName());
+					String configuredNpc = config.targetNpc().getNpcName();
+					
+					if (configuredNpc != null && !configuredNpc.isEmpty() &&
+						targetName != null && targetName.equalsIgnoreCase(configuredNpc))
+					{
+						// Check if we already have an active session
+						if (timerEnd == null || timerEnd.isBefore(Instant.now()))
+						{
+							// Start session when player is actually casting spells at the knight
+							tileManager.setCurrentTarget(interactingTarget);
+							startTimer();
+							log.info("Session started by detecting spell animation on {} (animation: {})", targetName, animationId);
+						}
+					}
+				}
+			}
+		}
 
 		// Check if a player near the knight is pickpocketing
 		if (actor instanceof Player && actor != client.getLocalPlayer())
@@ -1136,10 +922,10 @@ public class SplashHelperPlugin extends Plugin
 			if (animationId == 881)
 			{
 				// Check if they're near the knight
-				if (currentTarget != null)
+				if (tileManager.getCurrentTarget() != null)
 				{
 					WorldPoint playerPos = player.getWorldLocation();
-					WorldPoint knightPos = currentTarget.getWorldLocation();
+					WorldPoint knightPos = tileManager.getCurrentTarget().getWorldLocation();
 					
 					if (playerPos != null && knightPos != null && playerPos.distanceTo(knightPos) <= 1)
 					{
@@ -1159,32 +945,174 @@ public class SplashHelperPlugin extends Plugin
 	public void onHitsplatApplied(HitsplatApplied event)
 	{
 		// Track pickpocket hitsplats on the knight
-		if (currentTarget != null && event.getActor() == currentTarget)
+		if (tileManager.getCurrentTarget() != null && event.getActor() == tileManager.getCurrentTarget())
 		{
 			// Someone hit the knight (could be pickpocket or splash)
 			// We primarily track via animation, so this is supplementary
 		}
 	}
 
-	private boolean isSplashingConditionsMet()
+	
+	/**
+	 * Calculate the total cost of runes used based on GE prices.
+	 * Must be called on the client thread.
+	 */
+	private long calculateRuneCost(java.util.List<int[]> runeUsage)
 	{
-		// Check if all conditions are met to start tracking
-		if (currentTarget == null)
+		if (runeUsage == null || runeUsage.isEmpty())
 		{
-			return false;
+			return 0;
 		}
-		if (knightTile1 == null || knightTile2 == null)
+
+		SplashSession session = sessionManager.getCurrentSession();
+		int spellsCast = session != null ? session.getSpellsCast() : 0;
+
+		long totalCost = 0;
+		for (int[] rune : runeUsage)
 		{
-			return false;
+			// Validate rune array has expected length
+			if (rune == null || rune.length < 2)
+			{
+				continue;
+			}
+			
+			int itemId = rune[0];
+			int amountPerCast = rune[1];
+			
+			// Skip invalid item IDs
+			if (itemId <= 0 || amountPerCast <= 0)
+			{
+				continue;
+			}
+			
+			int totalUsed = spellsCast * amountPerCast;
+			if (totalUsed <= 0)
+			{
+				continue;
+			}
+			
+			// Validate itemManager before getting price
+			if (itemManager == null)
+			{
+				continue;
+			}
+			
+			int price = itemManager.getItemPrice(itemId);
+			if (price < 0)
+			{
+				continue; // Skip items with invalid prices
+			}
+			
+			totalCost += (long) price * totalUsed;
 		}
-		
-		WorldPoint knightPos = currentTarget.getWorldLocation();
-		if (knightPos == null)
+		return totalCost;
+	}
+
+	/**
+	 * Update visual notification state when timer expires.
+	 */
+	private void updateVisualNotificationState()
+	{
+		if (showVisualNotification && visualNotificationEnd != null)
 		{
-			return false;
+			if (Instant.now().isAfter(visualNotificationEnd))
+			{
+				showVisualNotification = false;
+				visualNotificationEnd = null;
+			}
 		}
-		
-		boolean onValidTile = knightPos.equals(knightTile1) || knightPos.equals(knightTile2);
-		return onValidTile;
+	}
+
+	/**
+	 * Check if timer has expired and send notification.
+	 */
+	private void checkTimerExpiration()
+	{
+		if (timerEnd != null && !hasNotified)
+		{
+			Duration remaining = Duration.between(Instant.now(), timerEnd);
+			if (remaining.isNegative() || remaining.isZero())
+			{
+				notificationService.sendTimerNotification("Splash timer has expired!");
+				hasNotified = true;
+				log.info("Timer expired - notification sent");
+			}
+		}
+	}
+
+	/**
+	 * Check HP threshold when knight can attack.
+	 */
+	private void checkHpThreshold()
+	{
+		if (tileManager.isHasEscaped() && config != null && config.enableHpNotification())
+		{
+			// Validate client is available
+			if (client == null)
+			{
+				return;
+			}
+			
+			int currentHp = client.getBoostedSkillLevel(Skill.HITPOINTS);
+			if (currentHp <= config.hpThreshold())
+			{
+				notificationService.sendHpNotification("HP is low (" + currentHp + ")! Knight may be attacking you!");
+			}
+		}
+	}
+
+	
+	
+	/**
+	 * Update session statistics and panel.
+	 */
+	private void updateSessionStatistics()
+	{
+		if (config != null && config.enableStatistics())
+		{
+			// Validate sessionManager before using
+			if (sessionManager == null)
+			{
+				return;
+			}
+			
+			// Update cached values on client thread for UI access
+			cachedRemainingCasts = getRemainingCastsForCurrentSpell();
+			cachedInfiniteRunes = getInfiniteRunesFromEquipment();
+			cachedActualRuneUsage = getActualRuneUsage();
+			cachedRuneCost = calculateRuneCost(cachedActualRuneUsage);
+			
+			Instant now = Instant.now();
+			if (sessionManager.hasActiveSession())
+			{
+				// Continuously update session's rune data while active (so it's preserved on finalization)
+				SplashSession currentSession = sessionManager.getCurrentSession();
+				if (currentSession != null && cachedActualRuneUsage != null && !cachedActualRuneUsage.isEmpty())
+				{
+					currentSession.setActualRuneUsage(new java.util.ArrayList<>(cachedActualRuneUsage));
+					currentSession.setRuneCostGp(cachedRuneCost);
+				}
+				
+				// Check for session timeout via service
+				if (sessionManager.checkSessionTimeout())
+				{
+					// Reset timer when session goes idle
+					timerEnd = null;
+					hasNotified = false;
+				}
+				else if (lastStatsSample == null || 
+					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
+				{
+					sampleSessionStatistics();
+					lastStatsSample = now;
+				}
+			}
+			
+			// Update statistics panel
+			if (statisticsPanel != null)
+			{
+				statisticsPanel.updatePanel();
+			}
+		}
 	}
 }

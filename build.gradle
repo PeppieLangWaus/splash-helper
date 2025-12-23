@@ -3,7 +3,6 @@ plugins {
 }
 
 repositories {
-	mavenLocal()
 	maven {
 		url = 'https://repo.runelite.net'
 		content {
@@ -32,11 +31,7 @@ version = '1.0-SNAPSHOT'
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'
 	options.release.set(11)
-}
-
-// Exclude all LWJGL native dependencies (they're not needed for compilation)
-configurations.configureEach {
-	exclude group: 'org.lwjgl'
+	options.compilerArgs << "-Xlint:deprecation"
 }
 
 tasks.register('shadowJar', Jar) {

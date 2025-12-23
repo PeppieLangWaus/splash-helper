@@ -1,4 +1,4 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.model;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,12 +35,18 @@ public class SplashSession
 	// Player tracking
 	private final Set<String> pickpocketers = new HashSet<>();
 	private final List<Integer> playerCountSamples = new ArrayList<>();
+	@Setter
+	private int highestPlayerCount = 0;
 
 	// Rune tracking
 	@Setter
 	private int startingRuneCount = 0;
 	@Setter
 	private int currentRuneCount = 0;
+	@Setter
+	private List<int[]> actualRuneUsage = new ArrayList<>();  // Runes actually consumed (excludes infinite)
+	@Setter
+	private long runeCostGp = 0;  // Total GP cost of runes used
 
 	public SplashSession(String playerName, SplashSpell spell, Instant logoutTime, int world, boolean stickyKnight, int startMagicXp)
 	{
@@ -109,6 +115,10 @@ public class SplashSession
 	public void addPlayerCountSample(int count)
 	{
 		playerCountSamples.add(count);
+		if (count > highestPlayerCount)
+		{
+			highestPlayerCount = count;
+		}
 	}
 
 	public double getAveragePlayerCount()

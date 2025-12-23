@@ -13,7 +13,7 @@ import net.runelite.api.Client;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.gameval.InventoryID;
-import xyz.peppie.splashhelper.SplashSpell;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.util.Constants;
 
 /**

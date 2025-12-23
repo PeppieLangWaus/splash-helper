@@ -4,13 +4,12 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.api.Actor;
 import net.runelite.api.NPC;
-import net.runelite.api.NPCComposition;
 import net.runelite.api.coords.WorldPoint;
 import xyz.peppie.splashhelper.util.Constants;
 
 /**
  * Service responsible for detecting and analyzing the Knight of Ardougne NPC.
- * Handles sticky knight detection based on model IDs.
+ * Handles sticky knight detection based on NPC IDs.
  */
 @Singleton
 public class KnightDetector
@@ -21,8 +20,9 @@ public class KnightDetector
 	}
 
 	/**
-	 * Check if the given actor is a "sticky" knight (female model).
+	 * Check if the given actor is a "sticky" knight (female variant).
 	 * Sticky knights have a smaller clickbox and are preferred for splashing.
+	 * Detection is based on NPC ID.
 	 */
 	public boolean isStickyKnight(Actor target)
 	{
@@ -32,31 +32,9 @@ public class KnightDetector
 		}
 
 		NPC knight = (NPC) target;
+		int npcId = knight.getId();
 
-		NPCComposition composition = knight.getTransformedComposition();
-		if (composition == null)
-		{
-			composition = knight.getComposition();
-		}
-
-		if (composition == null)
-		{
-			return false;
-		}
-
-		int[] models = composition.getModels();
-		if (models != null)
-		{
-			for (int modelId : models)
-			{
-				if (Constants.FEMALE_KNIGHT_MODEL_IDS.contains(modelId))
-				{
-					return true;
-				}
-			}
-		}
-
-		return false;
+		return npcId == Constants.FEMALE_KNIGHT_NPC_ID;
 	}
 
 	/**

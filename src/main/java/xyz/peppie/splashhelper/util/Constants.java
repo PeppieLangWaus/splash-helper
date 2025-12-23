@@ -1,7 +1,5 @@
 package xyz.peppie.splashhelper.util;
 
-import java.util.Set;
-
 /**
  * Central location for all constant values used throughout the plugin.
  */
@@ -10,7 +8,7 @@ public final class Constants
 	private Constants() {}
 
 	// ==================== Timing Constants ====================
-	public static final int SESSION_TIMEOUT_SECONDS = 10;
+	public static final int SESSION_TIMEOUT_TICKS = 8;  // 8 game ticks (~4.8 seconds)
 	public static final int BOUNDARY_DEBOUNCE_TICKS = 5;
 	public static final int VISUAL_NOTIFICATION_DURATION_MS = 2000;
 
@@ -21,6 +19,33 @@ public final class Constants
 	public static final int MUD_RUNE = 4698;    // Water + Earth
 	public static final int STEAM_RUNE = 4694;  // Water + Fire
 	public static final int LAVA_RUNE = 4699;   // Earth + Fire
+
+	// ==================== Spell Cast Animation IDs ===============
+
+	public static final int WIND_STRIKE = 1162;
+	public static final int WATER_STRIKE = 11423;
+	public static final int EARTH_STRIKE = 11423;
+	public static final int FIRE_STRIKE = 11423;
+
+	public static final int WIND_BOLT = 11423;
+	public static final int WATER_BOLT = 11423;
+	public static final int EARTH_BOLT = 11423;
+	public static final int FIRE_BOLT = 11423;
+
+	public static final int WIND_BLAST = 1162;
+	public static final int WATER_BLAST = 11423;
+	public static final int EARTH_BLAST = 11423;
+	public static final int FIRE_BLAST = 11423;
+
+	public static final int WIND_WAVE = 11430;
+	public static final int WATER_WAVE = 11430;
+	public static final int EARTH_WAVE = 11430;
+	public static final int FIRE_WAVE = 11430;
+
+	public static final int WIND_SURGE = 9145;
+	public static final int WATER_SURGE = 9145;
+	public static final int EARTH_SURGE = 9145;
+	public static final int FIRE_SURGE = 9145;
 
 	// ==================== Rune Pouch IDs ====================
 	public static final int RUNE_POUCH = 12791;
@@ -47,8 +72,8 @@ public final class Constants
 	public static final int STAFF_OF_AIR = 1381;
 	public static final int AIR_BATTLESTAFF = 1397;
 	public static final int MYSTIC_AIR_STAFF = 1405;
-	public static final int SMOKE_BATTLESTAFF = 11787;
-	public static final int MYSTIC_SMOKE_STAFF = 12795;
+	public static final int SMOKE_BATTLESTAFF = 11998;
+	public static final int MYSTIC_SMOKE_STAFF = 12000;
 	public static final int DUST_BATTLESTAFF = 20736;
 	public static final int MYSTIC_DUST_STAFF = 20739;
 	public static final int MIST_BATTLESTAFF = 6562;
@@ -58,8 +83,8 @@ public final class Constants
 	public static final int STAFF_OF_WATER = 1383;
 	public static final int WATER_BATTLESTAFF = 1395;
 	public static final int MYSTIC_WATER_STAFF = 1403;
-	public static final int STEAM_BATTLESTAFF = 11789;
-	public static final int MYSTIC_STEAM_STAFF = 12797;
+	public static final int STEAM_BATTLESTAFF = 11787;
+	public static final int MYSTIC_STEAM_STAFF = 12795;
 	public static final int MUD_BATTLESTAFF = 6564;
 	public static final int MYSTIC_MUD_STAFF = 6565;
 
@@ -75,11 +100,12 @@ public final class Constants
 	public static final int FIRE_BATTLESTAFF = 1393;
 	public static final int MYSTIC_FIRE_STAFF = 1401;
 
-	// ==================== Knight Model IDs ====================
-	public static final Set<Integer> FEMALE_KNIGHT_MODEL_IDS = Set.of(
-		11936,  // Female model
-		3297    // Male model (note: this seems incorrect in original code)
-	);
+	// ==================== Knight NPC IDs ====================
+	// Female (sticky) knight has a smaller clickbox - detected by NPC ID
+	// NPC ID 11936 is the female knight variant (sticky)
+	// NPC ID 3297 is the male knight variant (normal)
+	public static final int FEMALE_KNIGHT_NPC_ID = 11936;
+	public static final int MALE_KNIGHT_NPC_ID = 3297;
 
 	// ==================== Animation IDs ====================
 	public static final int ANIMATION_MAGIC_COMBAT = 711;
@@ -98,6 +124,16 @@ public final class Constants
 			id == FIRE_RUNE || id == MIND_RUNE || id == BODY_RUNE ||
 			id == CHAOS_RUNE || id == DEATH_RUNE || id == BLOOD_RUNE ||
 			id == WRATH_RUNE;
+	}
+
+	public static boolean isStandardSpellAnimation(int id)
+	{
+		return
+		id == WIND_STRIKE || id == WATER_STRIKE || id == EARTH_STRIKE || id == FIRE_STRIKE || 
+		id == WIND_BOLT || id == WATER_BOLT || id == EARTH_BOLT || id == FIRE_BOLT ||
+		id == WIND_BLAST || id == WATER_BLAST || id == EARTH_BLAST || id == FIRE_BLAST ||
+		id == WIND_WAVE || id == WATER_WAVE || id == EARTH_WAVE || id == FIRE_WAVE || 
+		id == WIND_SURGE || id == WATER_SURGE || id == EARTH_SURGE || id == FIRE_SURGE;
 	}
 
 	public static boolean isCombinationRune(int id)

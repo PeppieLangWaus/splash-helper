@@ -1,4 +1,4 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.model;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;

@@ -1,6 +1,5 @@
 package xyz.peppie.splashhelper.service;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,8 +9,8 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Skill;
-import xyz.peppie.splashhelper.SplashSession;
-import xyz.peppie.splashhelper.SplashSpell;
+import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.util.Constants;
 
 /**
@@ -34,7 +33,7 @@ public class SessionManager
 	@Getter
 	private final List<SplashSession> sessionHistory = new ArrayList<>();
 
-	private Instant lastCastTime = null;
+	private int lastCastTick = -1;
 	private int lastMagicXp = -1;
 
 	@Inject
@@ -52,7 +51,7 @@ public class SessionManager
 	{
 		int startXp = client.getSkillExperience(Skill.MAGIC);
 		lastMagicXp = startXp;
-		lastCastTime = Instant.now();
+		lastCastTick = client.getTickCount();
 
 		currentSession = new SplashSession(
 			playerName,
@@ -72,6 +71,7 @@ public class SessionManager
 
 	/**
 	 * Finalize the current session and add it to history.
+	 * Uses rune data already stored in the session (updated continuously while active).
 	 */
 	public void finalizeSession()
 	{
@@ -80,12 +80,12 @@ public class SessionManager
 			currentSession.setEndTime(Instant.now());
 			sessionHistory.add(currentSession);
 			lastFinalizedSession = currentSession;
-			log.info("Finalized session: {} casts, {} XP gained",
-				currentSession.getSpellsCast(), currentSession.getMagicXpGained());
+			log.info("Finalized session: {} casts, {} XP gained, {} gp cost",
+				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
 		}
 		currentSession = null;
 		lastMagicXp = -1;
-		lastCastTime = null;
+		lastCastTick = -1;
 	}
 
 	/**
@@ -99,15 +99,16 @@ public class SessionManager
 			return false;
 		}
 
-		if (lastCastTime == null)
+		if (lastCastTick < 0)
 		{
 			return false;
 		}
 
-		Instant now = Instant.now();
-		if (Duration.between(lastCastTime, now).getSeconds() >= Constants.SESSION_TIMEOUT_SECONDS)
+		int currentTick = client.getTickCount();
+		int ticksSinceLastCast = currentTick - lastCastTick;
+		if (ticksSinceLastCast >= Constants.SESSION_TIMEOUT_TICKS)
 		{
-			log.info("Session timeout - no cast in {} seconds", Constants.SESSION_TIMEOUT_SECONDS);
+			log.info("Session timeout - no cast in {} ticks", ticksSinceLastCast);
 			finalizeSession();
 			return true;
 		}
@@ -142,7 +143,7 @@ public class SessionManager
 				currentSession.setCurrentRuneCount(runeCalculator.getRemainingCasts(spell));
 			}
 
-			lastCastTime = Instant.now();
+			lastCastTick = client.getTickCount();
 			return xpGained;
 		}
 
@@ -225,7 +226,7 @@ public class SessionManager
 		currentSession = null;
 		sessionHistory.clear();
 		lastMagicXp = -1;
-		lastCastTime = null;
+		lastCastTick = -1;
 	}
 
 	/**

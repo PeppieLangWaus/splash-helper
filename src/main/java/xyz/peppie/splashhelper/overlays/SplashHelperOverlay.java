@@ -7,31 +7,30 @@ import java.time.Duration;
 import java.time.Instant;
 import javax.inject.Inject;
 
-import net.runelite.api.Client;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.PanelComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
-import xyz.peppie.splashhelper.SplashHelperConfig;
 import xyz.peppie.splashhelper.SplashHelperPlugin;
+import xyz.peppie.splashhelper.service.TileManager;
 
 public class SplashHelperOverlay extends Overlay
 {
 	private SplashHelperPlugin plugin;
-	private final SplashHelperConfig config;
+	private TileManager tileManager;
 	private final PanelComponent panelComponent = new PanelComponent();
 
 	@Inject
-	private SplashHelperOverlay(Client client, SplashHelperConfig config)
+	private SplashHelperOverlay()
 	{
 		setPosition(OverlayPosition.ABOVE_CHATBOX_RIGHT);
-		this.config = config;
 	}
 
-	public void setPlugin(SplashHelperPlugin plugin)
+	public void setPlugin(SplashHelperPlugin plugin, TileManager tileManager)
 	{
 		this.plugin = plugin;
+		this.tileManager = tileManager;
 	}
 
 	@Override
@@ -57,7 +56,7 @@ public class SplashHelperOverlay extends Overlay
 		}
 		
 		// Show boundary tile status
-		if (plugin.getBoundaryTile() != null)
+		if (tileManager.getBoundaryTile() != null)
 		{
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left("Boundary:")
@@ -67,9 +66,9 @@ public class SplashHelperOverlay extends Overlay
 		}
 		
 		// Show movement tracking stats
-		if (plugin.getKnightTile1() != null && plugin.getKnightTile2() != null)
+		if (tileManager.getKnightTile1() != null && tileManager.getKnightTile2() != null)
 		{
-			double movementsPerMin = plugin.getMovementsPerMinute();
+			double movementsPerMin = tileManager.getMovementsPerMinute();
 			String movementText = String.format("%.1f/min", movementsPerMin);
 			
 			Color movementColor = Color.CYAN;

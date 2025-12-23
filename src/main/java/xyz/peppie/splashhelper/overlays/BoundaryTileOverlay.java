@@ -14,54 +14,45 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import xyz.peppie.splashhelper.SplashHelperConfig;
-import xyz.peppie.splashhelper.SplashHelperPlugin;
+import xyz.peppie.splashhelper.service.TileManager;
 
 public class BoundaryTileOverlay extends Overlay
 {
 	private final Client client;
 	private final SplashHelperConfig config;
-	private SplashHelperPlugin plugin;
+	private final TileManager tileManager;
 
 	@Inject
-	private BoundaryTileOverlay(Client client, SplashHelperConfig config)
+	private BoundaryTileOverlay(Client client, SplashHelperConfig config, TileManager tileManager)
 	{
 		this.client = client;
 		this.config = config;
+		this.tileManager = tileManager;
 		setPosition(OverlayPosition.DYNAMIC);
 		setLayer(OverlayLayer.ABOVE_SCENE);
-	}
-
-	public void setPlugin(SplashHelperPlugin plugin)
-	{
-		this.plugin = plugin;
 	}
 
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		if (plugin == null)
-		{
-			return null;
-		}
-
 		Stroke originalStroke = graphics.getStroke();
 
 		// Render boundary tile
-		if (plugin.getBoundaryTile() != null)
+		if (tileManager.getBoundaryTile() != null)
 		{
-			renderTile(graphics, plugin.getBoundaryTile(), config.boundaryTileColor(), originalStroke);
+			renderTile(graphics, tileManager.getBoundaryTile(), config.boundaryTileColor(), originalStroke);
 		}
 
 		// Render Knight Tile 1
-		if (plugin.getKnightTile1() != null)
+		if (tileManager.getKnightTile1() != null)
 		{
-			renderTile(graphics, plugin.getKnightTile1(), config.knightTile1Color(), originalStroke);
+			renderTile(graphics, tileManager.getKnightTile1(), config.knightTile1Color(), originalStroke);
 		}
 
 		// Render Knight Tile 2
-		if (plugin.getKnightTile2() != null)
+		if (tileManager.getKnightTile2() != null)
 		{
-			renderTile(graphics, plugin.getKnightTile2(), config.knightTile2Color(), originalStroke);
+			renderTile(graphics, tileManager.getKnightTile2(), config.knightTile2Color(), originalStroke);
 		}
 
 		return null;

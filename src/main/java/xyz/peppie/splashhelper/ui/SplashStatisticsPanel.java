@@ -1,7 +1,6 @@
-package xyz.peppie.splashhelper;
+package xyz.peppie.splashhelper.ui;
 
 import java.awt.BorderLayout;
-import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.GridLayout;
 import java.util.ArrayList;
@@ -13,7 +12,9 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.game.ItemManager;
-import xyz.peppie.splashhelper.SplashSpell.RuneCost;
+import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.SplashHelperPlugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -21,15 +22,12 @@ import net.runelite.client.ui.components.PluginErrorPanel;
 
 public class SplashStatisticsPanel extends PluginPanel
 {
-    private static final String ERROR_PANEL = "ERROR";
-    private static final String DATA_PANEL = "DATA";
-
     private final SplashHelperPlugin plugin;
     private final SplashHelperConfig config;
     private final ItemManager itemManager;
 
-    private final CardLayout cardLayout = new CardLayout();
-    private final JPanel container = new JPanel(cardLayout);
+    // Main layout container
+    private final JPanel layoutPanel = new JPanel();
     private final PluginErrorPanel errorPanel = new PluginErrorPanel();
 
     // Overall statistics
@@ -38,8 +36,14 @@ public class SplashStatisticsPanel extends PluginPanel
     private final JLabel overallTimeLabel = new JLabel("0:00");
     private final JLabel overallCastsLabel = new JLabel("0");
     private final JLabel overallXpLabel = new JLabel("0");
+    private final JLabel overallCostLabel = new JLabel("0 gp");
     private final JLabel overallRemainingLabel = new JLabel("0");
     private final JLabel overallStatusLabel = new JLabel("-");
+    private final JLabel overallPlayerCountLabel = new JLabel("0");
+    private final JLabel overallHoursRemainingLabel = new JLabel("0.0h");
+    private final JLabel overallPotentialXpLabel = new JLabel("0");
+    private final JLabel overallGpPerHourLabel = new JLabel("0 gp/h");
+    private final JLabel overallHighestPlayerCountLabel = new JLabel("0");
 
     // Current session
     private final JPanel currentPanel = new JPanel();
@@ -51,6 +55,9 @@ public class SplashStatisticsPanel extends PluginPanel
     private final JLabel castsLabel = new JLabel("0");
     private final JLabel xpGainedLabel = new JLabel("0");
     private final JLabel xpHourLabel = new JLabel("0");
+    private final JLabel runeCostLabel = new JLabel("0 gp");
+    private final JLabel playerCountLabel = new JLabel("0");
+    private final JLabel highestPlayerCountLabel = new JLabel("0");
 
     // Supply tracker
     private SplashSupplyTrackerBox supplyBox;
@@ -62,37 +69,29 @@ public class SplashStatisticsPanel extends PluginPanel
 
     public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager)
     {
-        super(false);
+        super(true);
         this.plugin = plugin;
         this.config = config;
         this.itemManager = itemManager;
 
-        setLayout(new BorderLayout());
+        setBorder(new EmptyBorder(6, 6, 6, 6));
         setBackground(ColorScheme.DARK_GRAY_COLOR);
+        setLayout(new BorderLayout());
 
-        // Error panel
+        // Create layout panel for wrapping (like LootTrackerPanel)
+        layoutPanel.setLayout(new BoxLayout(layoutPanel, BoxLayout.Y_AXIS));
+        add(layoutPanel, BorderLayout.NORTH);
+
+        // Add sub-panels to layout
+        layoutPanel.add(buildOverallPanel());
+        layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        layoutPanel.add(buildCurrentSessionPanel(itemManager));
+        layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        layoutPanel.add(buildHistoryPanel());
+
+        // Add error panel (shown when no data)
         errorPanel.setContent("Splash Statistics", "Start splashing to see statistics.");
-
-        // Data panel with stats
-        JPanel dataPanel = new JPanel();
-        dataPanel.setLayout(new BoxLayout(dataPanel, BoxLayout.Y_AXIS));
-        dataPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-        dataPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
-
-        dataPanel.add(buildOverallPanel());
-        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
-        dataPanel.add(buildCurrentSessionPanel(itemManager));
-        dataPanel.add(javax.swing.Box.createVerticalStrut(10));
-        dataPanel.add(buildHistoryPanel());
-
-        // Add panels to card layout
-        container.add(errorPanel, ERROR_PANEL);
-        container.add(dataPanel, DATA_PANEL);
-
-        add(container, BorderLayout.NORTH);
-
-        // Show error panel initially
-        cardLayout.show(container, ERROR_PANEL);
+        add(errorPanel, BorderLayout.CENTER);
     }
 
     private JPanel buildOverallPanel()
@@ -120,8 +119,14 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(overallPanel, "Total Time:", overallTimeLabel);
         addStatRow(overallPanel, "Total Casts:", overallCastsLabel);
         addStatRow(overallPanel, "Total XP:", overallXpLabel);
+        addStatRow(overallPanel, "Total Cost:", overallCostLabel);
         addStatRow(overallPanel, "Remaining:", overallRemainingLabel);
+        addStatRow(overallPanel, "Hours Remaining:", overallHoursRemainingLabel);
+        addStatRow(overallPanel, "Potential XP:", overallPotentialXpLabel);
+        addStatRow(overallPanel, "GP/Hour:", overallGpPerHourLabel);
         addStatRow(overallPanel, "Status:", overallStatusLabel);
+        addStatRow(overallPanel, "Current Players:", overallPlayerCountLabel);
+        addStatRow(overallPanel, "Highest Players:", overallHighestPlayerCountLabel);
 
         return overallContainer;
     }
@@ -155,6 +160,9 @@ public class SplashStatisticsPanel extends PluginPanel
         addStatRow(currentPanel, "Casts:", castsLabel);
         addStatRow(currentPanel, "XP Gained:", xpGainedLabel);
         addStatRow(currentPanel, "XP/Hour:", xpHourLabel);
+        addStatRow(currentPanel, "Rune Cost:", runeCostLabel);
+        addStatRow(currentPanel, "Nearby Players:", playerCountLabel);
+        addStatRow(currentPanel, "Highest Players:", highestPlayerCountLabel);
 
         supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
         currentContainer.add(supplyBox);
@@ -189,11 +197,8 @@ public class SplashStatisticsPanel extends PluginPanel
                 box.collapse();
             }
             
-            // Get rune usage from spell
-            List<int[]> runeUsage = getRuneUsageFromSpell(session.getSpell());
-            
-            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest, itemManager, runeUsage);
-            historyBoxes.add(0, historyBox); // Add to front of list
+            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest, itemManager);
+            historyBoxes.add(historyBox); // Add to front of list
             
             // Add new session at the top (index 0)
             historyContainer.add(historyBox, 0);
@@ -208,19 +213,6 @@ public class SplashStatisticsPanel extends PluginPanel
         lastHistorySize = history.size();
         historyContainer.revalidate();
         historyContainer.repaint();
-    }
-
-    private List<int[]> getRuneUsageFromSpell(SplashSpell spell)
-    {
-        List<int[]> runeUsage = new ArrayList<>();
-        if (spell != null)
-        {
-            for (RuneCost cost : spell.getRuneCosts())
-            {
-                runeUsage.add(new int[]{cost.getItemId(), cost.getAmount()});
-            }
-        }
-        return runeUsage;
     }
 
     private void addStatRow(JPanel panel, String labelText, JLabel valueLabel)
@@ -259,24 +251,27 @@ public class SplashStatisticsPanel extends PluginPanel
 
             if (!hasData)
             {
-                cardLayout.show(container, ERROR_PANEL);
+                errorPanel.setVisible(true);
                 return;
             }
 
             // Show data panel
-            cardLayout.show(container, DATA_PANEL);
+            layoutPanel.setVisible(true);
+            errorPanel.setVisible(false);
 
             // Calculate totals
             int totalSessions = history.size() + (hasActiveSession ? 1 : 0);
             long totalSeconds = history.stream().mapToLong(SplashSession::getSessionDurationSeconds).sum();
             int totalCasts = history.stream().mapToInt(SplashSession::getSpellsCast).sum();
             int totalXp = history.stream().mapToInt(SplashSession::getMagicXpGained).sum();
+            long totalCost = history.stream().mapToLong(SplashSession::getRuneCostGp).sum();
 
-            if (hasActiveSession)
+            if (hasActiveSession && currentSession != null)
             {
                 totalSeconds += currentSession.getSessionDurationSeconds();
                 totalCasts += currentSession.getSpellsCast();
                 totalXp += currentSession.getMagicXpGained();
+                totalCost += plugin.getCachedRuneCost();  // Current session cost from cache
             }
 
             // Update overall stats
@@ -284,6 +279,8 @@ public class SplashStatisticsPanel extends PluginPanel
             overallTimeLabel.setText(formatDuration(totalSeconds));
             overallCastsLabel.setText(formatNumber(totalCasts));
             overallXpLabel.setText(formatNumber(totalXp));
+            overallCostLabel.setText(formatNumber((int) totalCost) + " gp");
+            overallCostLabel.setForeground(Color.ORANGE);
 
             // Update remaining casts (using cached value from client thread)
             int remaining = plugin.getCachedRemainingCasts();
@@ -300,6 +297,54 @@ public class SplashStatisticsPanel extends PluginPanel
             {
                 overallRemainingLabel.setForeground(Color.RED);
             }
+
+            // Calculate hours remaining (assuming 1 cast per 3 seconds = 1200 casts/hour)
+            double hoursRemaining = remaining / 1200.0;
+            overallHoursRemainingLabel.setText(String.format("%.1fh", hoursRemaining));
+            overallHoursRemainingLabel.setForeground(Color.CYAN);
+
+            // Calculate potential XP (using current session spell XP if available)
+            int potentialXp = 0;
+            if (hasActiveSession && currentSession != null && currentSession.getSpell() != null)
+            {
+                potentialXp = (int) (remaining * currentSession.getSpell().getBaseXp());
+            }
+            overallPotentialXpLabel.setText(formatNumber(potentialXp));
+            overallPotentialXpLabel.setForeground(Color.CYAN);
+
+            // Calculate GP per hour
+            long gpPerHour = 0;
+            if (hasActiveSession && currentSession != null)
+            {
+                long sessionDuration = currentSession.getSessionDurationSeconds();
+                if (sessionDuration > 0)
+                {
+                    gpPerHour = (currentSession.getRuneCostGp() * 3600) / sessionDuration;
+                }
+            }
+            overallGpPerHourLabel.setText(formatNumber((int) gpPerHour) + " gp/h");
+            overallGpPerHourLabel.setForeground(Color.ORANGE);
+
+            // Update highest player count across all sessions
+            int highestPlayers = 0;
+            for (SplashSession session : history)
+            {
+                if (session.getHighestPlayerCount() > highestPlayers)
+                {
+                    highestPlayers = session.getHighestPlayerCount();
+                }
+            }
+            if (hasActiveSession && currentSession != null && currentSession.getHighestPlayerCount() > highestPlayers)
+            {
+                highestPlayers = currentSession.getHighestPlayerCount();
+            }
+            overallHighestPlayerCountLabel.setText(String.valueOf(highestPlayers));
+            overallHighestPlayerCountLabel.setForeground(Color.CYAN);
+
+            // Update current player count
+            int currentPlayerCount = plugin.countNearbyPlayers(config.playerCountRadius());
+            overallPlayerCountLabel.setText(String.valueOf(currentPlayerCount));
+            overallPlayerCountLabel.setForeground(Color.CYAN);
 
             // Update status
             if (hasActiveSession)
@@ -322,7 +367,7 @@ public class SplashStatisticsPanel extends PluginPanel
             }
 
             // Update current session display
-            if (hasActiveSession)
+            if (hasActiveSession && currentSession != null)
             {
                 currentPanel.setVisible(true);
                 supplyBox.setVisible(true);
@@ -344,7 +389,7 @@ public class SplashStatisticsPanel extends PluginPanel
 
                 if (currentSession.isStickyKnight())
                 {
-                    stickyLabel.setText("STICKY");
+                    stickyLabel.setText("Sticky");
                     stickyLabel.setForeground(Color.GREEN);
                 }
                 else
@@ -365,6 +410,20 @@ public class SplashStatisticsPanel extends PluginPanel
                 // Update supply box with actual rune usage (combo runes, excludes infinite)
                 java.util.List<int[]> actualRuneUsage = plugin.getCachedActualRuneUsage();
                 supplyBox.buildItems(actualRuneUsage, currentSession.getSpellsCast());
+
+                // Use cached rune cost (calculated on client thread in plugin)
+                long sessionCost = plugin.getCachedRuneCost();
+                runeCostLabel.setText(formatNumber((int) sessionCost) + " gp");
+                runeCostLabel.setForeground(Color.ORANGE);
+
+                // Update nearby player count
+                double avgPlayerCount = currentSession.getAveragePlayerCount();
+                playerCountLabel.setText(String.format("%.1f avg", avgPlayerCount));
+                playerCountLabel.setForeground(Color.CYAN);
+
+                // Update highest player count
+                highestPlayerCountLabel.setText(String.valueOf(currentSession.getHighestPlayerCount()));
+                highestPlayerCountLabel.setForeground(Color.CYAN);
             }
             else
             {
@@ -384,6 +443,12 @@ public class SplashStatisticsPanel extends PluginPanel
                 xpGainedLabel.setText("0");
                 xpHourLabel.setText("0/hr");
                 xpHourLabel.setForeground(Color.GRAY);
+                runeCostLabel.setText("0 gp");
+                runeCostLabel.setForeground(Color.GRAY);
+                playerCountLabel.setText("0");
+                playerCountLabel.setForeground(Color.GRAY);
+                highestPlayerCountLabel.setText("0");
+                highestPlayerCountLabel.setForeground(Color.GRAY);
 
                 // Show empty runes row
                 supplyBox.buildItems(new java.util.ArrayList<>(), 0);
@@ -420,4 +485,5 @@ public class SplashStatisticsPanel extends PluginPanel
         }
         return String.valueOf(number);
     }
+
 }

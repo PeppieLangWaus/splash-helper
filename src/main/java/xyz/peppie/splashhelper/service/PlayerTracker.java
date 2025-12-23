@@ -1,7 +1,6 @@
 package xyz.peppie.splashhelper.service;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -90,9 +89,8 @@ public class PlayerTracker
 		}
 
 		int count = 0;
-		List<Player> players = client.getPlayers();
 
-		for (Player player : players)
+		for (Player player : client.getTopLevelWorldView().players())
 		{
 			if (player == null || player == localPlayer)
 			{
