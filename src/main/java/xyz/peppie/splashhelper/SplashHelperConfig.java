@@ -2,12 +2,18 @@ package xyz.peppie.splashhelper;
 
 import xyz.peppie.splashhelper.model.TargetNpc;
 import xyz.peppie.splashhelper.model.SplashSpell;
+import xyz.peppie.splashhelper.model.OverallStatField;
+import xyz.peppie.splashhelper.model.SessionStatField;
 import java.awt.Color;
+import java.awt.event.KeyEvent;
+import java.util.EnumSet;
+import java.util.Set;
 import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.ModifierlessKeybind;
 import net.runelite.client.config.Range;
 
 @ConfigGroup("splashhelper")
@@ -252,5 +258,141 @@ public interface SplashHelperConfig extends Config
 	default SplashSpell selectedSpell()
 	{
 		return SplashSpell.FIRE_STRIKE;
+	}
+
+	// ==================== Overall Statistics Panel ====================
+
+	@ConfigSection(
+		name = "Overall Statistics Panel",
+		description = "Configure which fields to show in the overall statistics panel",
+		position = 30,
+		closedByDefault = true
+	)
+	String overallStatsSection = "overallStats";
+
+	@ConfigItem(
+		keyName = "showOverallStats",
+		name = "Show Overall Statistics",
+		description = "Enable the overall statistics panel",
+		section = overallStatsSection,
+		position = 0
+	)
+	default boolean showOverallStats()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "overallStatFields",
+		name = "Visible Fields",
+		description = "Select which fields to display in the overall statistics panel",
+		section = overallStatsSection,
+		position = 1
+	)
+	default Set<OverallStatField> overallStatFields()
+	{
+		return EnumSet.allOf(OverallStatField.class);
+	}
+
+	// ==================== Current Session Panel ====================
+
+	@ConfigSection(
+		name = "Current Session Panel",
+		description = "Configure which fields to show in the current session panel",
+		position = 31,
+		closedByDefault = true
+	)
+	String currentSessionSection = "currentSession";
+
+	@ConfigItem(
+		keyName = "showCurrentSession",
+		name = "Show Current Session",
+		description = "Enable the current session panel",
+		section = currentSessionSection,
+		position = 0
+	)
+	default boolean showCurrentSession()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "currentSessionFields",
+		name = "Visible Fields",
+		description = "Select which fields to display in the current session panel",
+		section = currentSessionSection,
+		position = 1
+	)
+	default Set<SessionStatField> currentSessionFields()
+	{
+		return EnumSet.allOf(SessionStatField.class);
+	}
+
+	// ==================== Session History Panel ====================
+
+	@ConfigSection(
+		name = "Session History Panel",
+		description = "Configure which fields to show in the session history panel",
+		position = 32,
+		closedByDefault = true
+	)
+	String sessionHistorySection = "sessionHistory";
+
+	@ConfigItem(
+		keyName = "showSessionHistory",
+		name = "Show Session History",
+		description = "Enable the session history panel",
+		section = sessionHistorySection,
+		position = 0
+	)
+	default boolean showSessionHistory()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "sessionHistoryFields",
+		name = "Visible Fields",
+		description = "Select which fields to display in the session history panel",
+		section = sessionHistorySection,
+		position = 1
+	)
+	default Set<SessionStatField> sessionHistoryFields()
+	{
+		return EnumSet.allOf(SessionStatField.class);
+	}
+
+	@ConfigItem(
+		keyName = "maxPlayerCountSamples",
+		name = "Max Player Count Samples",
+		description = "Maximum number of player count samples to store (prevents memory issues)"
+	)
+	@Range(
+		min = 10,
+		max = 1000
+	)
+	default int maxPlayerCountSamples()
+	{
+		return 100;
+	}
+
+	@ConfigItem(
+		keyName = "safetyModeEnabled",
+		name = "Safety Mode",
+		description = "Enable safety mode to prevent actions that lose knight aggro"
+	)
+	default boolean safetyModeEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "safetyModeHotkey",
+		name = "Safety Mode Hotkey",
+		description = "Hotkey to toggle safety mode (default: Numlock *)"
+	)
+	default ModifierlessKeybind safetyModeHotkey()
+	{
+		return new ModifierlessKeybind(KeyEvent.VK_MULTIPLY, 0);
 	}
 }

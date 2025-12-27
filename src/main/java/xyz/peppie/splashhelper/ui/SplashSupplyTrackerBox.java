@@ -51,7 +51,7 @@ public class SplashSupplyTrackerBox extends JPanel
 
 	/**
 	 * Build items using actual rune usage data.
-	 * @param actualRuneUsage List of int[2] arrays: [itemId, amountPerCast] - excludes infinite runes
+	 * @param actualRuneUsage List of int[2] arrays: [itemId, totalAmountUsed] - excludes infinite runes
 	 * @param spellsCast Number of spells cast
 	 */
 	public void buildItems(java.util.List<int[]> actualRuneUsage, int spellsCast)
@@ -75,8 +75,8 @@ public class SplashSupplyTrackerBox extends JPanel
 			for (int[] runeData : actualRuneUsage)
 			{
 				int itemId = runeData[0];
-				int amountPerCast = runeData[1];
-				int totalUsed = spellsCast * amountPerCast;
+				int totalUsed = runeData[1];  // Now using total amount directly
+				int amountPerCast = spellsCast > 0 ? totalUsed / spellsCast : 0;  // Calculate per cast for tooltip
 				
 				JPanel slotContainer = new JPanel();
 				slotContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);

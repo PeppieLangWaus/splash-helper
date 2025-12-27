@@ -18,9 +18,6 @@ import java.time.Instant;
 public class TileManager
 {
 	@Inject
-	private Client client;
-
-	@Inject
 	private SplashHelperConfig config;
 
 	@Inject

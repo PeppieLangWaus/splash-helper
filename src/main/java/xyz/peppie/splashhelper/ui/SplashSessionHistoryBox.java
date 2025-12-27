@@ -6,6 +6,8 @@ import java.awt.GridLayout;
 import java.awt.Cursor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -19,26 +21,39 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.client.game.ItemManager;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
+import xyz.peppie.splashhelper.model.SessionStatField;
+import xyz.peppie.splashhelper.SplashHelperConfig;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.util.QuantityFormatter;
+import xyz.peppie.splashhelper.service.SessionManager;
 
 public class SplashSessionHistoryBox extends JPanel
 {
-	private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm");
+	public interface SessionDeleteListener
+	{
+		void onSessionDeleted(SplashSessionHistoryBox box);
+	}
+
 	private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("EEE");
 	private static final DateTimeFormatter FULL_FORMAT = DateTimeFormatter.ofPattern("EEE HH:mm");
 
 	private final SplashSession session;
+	private final SplashHelperConfig config;
+	private final SessionManager sessionManager;
+	private final SessionDeleteListener deleteListener;
 	private final JPanel titlePanel;
 	private final JLabel titleLabel;
 	private final JPanel contentPanel;
 	private final SplashSupplyTrackerBox runeBox;
 	private boolean collapsed;
 
-	public SplashSessionHistoryBox(SplashSession session, boolean startCollapsed, ItemManager itemManager)
+	public SplashSessionHistoryBox(SplashSession session, boolean startCollapsed, ItemManager itemManager, SplashHelperConfig config, SessionManager sessionManager, SessionDeleteListener deleteListener)
 	{
 		this.session = session;
+		this.config = config;
+		this.sessionManager = sessionManager;
+		this.deleteListener = deleteListener;
 		this.collapsed = startCollapsed;
 
 		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -67,7 +82,14 @@ public class SplashSessionHistoryBox extends JPanel
 			@Override
 			public void mouseClicked(MouseEvent e)
 			{
-				toggleCollapse();
+				if (SwingUtilities.isLeftMouseButton(e))
+				{
+					toggleCollapse();
+				}
+				else if (SwingUtilities.isRightMouseButton(e))
+				{
+					showContextMenu(e);
+				}
 			}
 
 			@Override
@@ -92,17 +114,27 @@ public class SplashSessionHistoryBox extends JPanel
 		contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
 		// Add stat rows
+		// Always show these fields (not configurable)
 		addStatRow("Player:", session.getPlayerName() != null ? session.getPlayerName() : "-");
-		addStatRow("Spell:", session.getSpell() != null ? session.getSpell().getName() : "Unknown");
 		addStatRow("World:", String.valueOf(session.getWorld()));
 		addStatRow("Knight:", session.isStickyKnight() ? "STICKY" : "Normal");
 		addStatRow("Time:", formatDuration(session.getSessionDurationSeconds()));
-		addStatRow("Casts:", String.valueOf(session.getSpellsCast()));
-		addStatRow("XP Gained:", formatNumber(session.getMagicXpGained()));
-		addStatRow("XP/Hour:", formatNumber((int) session.getXpPerHour()) + "/hr");
-		addStatRow("Rune Cost:", formatNumber((int) session.getRuneCostGp()) + " gp");
-		addStatRow("Avg Players:", String.format("%.1f", session.getAveragePlayerCount()));
-		addStatRow("Highest Players:", String.valueOf(session.getHighestPlayerCount()));
+		
+		// Conditionally show configurable fields
+		if (config.sessionHistoryFields().contains(SessionStatField.SPELL))
+			addStatRow("Spell:", session.getSpell() != null ? session.getSpell().getName() : "Unknown");
+		if (config.sessionHistoryFields().contains(SessionStatField.CASTS))
+			addStatRow("Casts:", String.valueOf(session.getSpellsCast()));
+		if (config.sessionHistoryFields().contains(SessionStatField.XP_GAINED))
+			addStatRow("XP Gained:", formatNumber(session.getMagicXpGained()));
+		if (config.sessionHistoryFields().contains(SessionStatField.XP_PER_HOUR))
+			addStatRow("XP/Hour:", formatNumber((int) session.getXpPerHour()) + "/hr");
+		if (config.sessionHistoryFields().contains(SessionStatField.RUNE_COST))
+			addStatRow("Rune Cost:", formatNumber((int) session.getRuneCostGp()) + " gp");
+		if (config.sessionHistoryFields().contains(SessionStatField.NEARBY_PLAYERS))
+			addStatRow("Avg Players:", String.format("%.1f", session.getAveragePlayerCount()));
+		if (config.sessionHistoryFields().contains(SessionStatField.HIGHEST_PLAYERS))
+			addStatRow("Highest Players:", String.valueOf(session.getHighestPlayerCount()));
 
 		add(contentPanel);
 
@@ -242,5 +274,47 @@ public class SplashSessionHistoryBox extends JPanel
 	public SplashSession getSession()
 	{
 		return session;
+	}
+
+	/**
+	 * Show context menu with delete option
+	 */
+	private void showContextMenu(MouseEvent e)
+	{
+		javax.swing.JPopupMenu contextMenu = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem deleteItem = new javax.swing.JMenuItem("Delete Session");
+		
+		deleteItem.addActionListener(event -> showDeleteConfirmation());
+		contextMenu.add(deleteItem);
+		
+		contextMenu.show(this, e.getX(), e.getY());
+	}
+
+	/**
+	 * Show confirmation dialog for deleting session
+	 */
+	private void showDeleteConfirmation()
+	{
+		String sessionInfo = String.format("%s - %s session", 
+			session.getPlayerName() != null ? session.getPlayerName() : "Unknown",
+			formatDuration(session.getSessionDurationSeconds()));
+		
+		int result = JOptionPane.showConfirmDialog(
+			this,
+			"Are you sure you want to delete this session?\n\n" + sessionInfo,
+			"Delete Session",
+			JOptionPane.YES_NO_OPTION,
+			JOptionPane.WARNING_MESSAGE
+		);
+		
+		if (result == JOptionPane.YES_OPTION)
+		{
+			sessionManager.deleteSession(session);
+			// Notify parent to handle removal properly
+			if (deleteListener != null)
+			{
+				deleteListener.onSessionDeleted(this);
+			}
+		}
 	}
 }

@@ -60,7 +60,13 @@ public class BoundaryTileOverlay extends Overlay
 
 	private void renderTile(Graphics2D graphics, WorldPoint worldPoint, java.awt.Color color, Stroke originalStroke)
 	{
-		LocalPoint localPoint = LocalPoint.fromWorld(client.getTopLevelWorldView(), worldPoint);
+		// Client is guaranteed to be non-null by dependency injection in RuneLite plugins
+		final Client safeClient = client;
+		if (safeClient == null) {
+			return;
+		}
+
+		LocalPoint localPoint = LocalPoint.fromWorld(safeClient.getTopLevelWorldView(), worldPoint);
 
 		if (localPoint == null)
 		{
@@ -68,7 +74,7 @@ public class BoundaryTileOverlay extends Overlay
 		}
 
 		// Get the tile polygon
-		Polygon tilePoly = Perspective.getCanvasTilePoly(client, localPoint);
+		Polygon tilePoly = Perspective.getCanvasTilePoly(safeClient, localPoint);
 
 		if (tilePoly == null)
 		{

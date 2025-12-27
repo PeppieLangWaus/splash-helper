@@ -19,11 +19,15 @@ import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.Tile;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.Item;
+import net.runelite.api.ItemComposition;
+import net.runelite.api.ItemContainer;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
@@ -31,14 +35,23 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.game.ItemStats;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
+import net.runelite.client.input.KeyListener;
+import net.runelite.client.input.KeyManager;
+import net.runelite.client.config.ModifierlessKeybind;
+import java.awt.event.KeyEvent;
+
 import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
 import xyz.peppie.splashhelper.overlays.GriefPreventionOverlay;
+import xyz.peppie.splashhelper.overlays.MagicBonusWarningOverlay;
+import xyz.peppie.splashhelper.overlays.SafetyModeOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
 import xyz.peppie.splashhelper.overlays.VisualNotificationOverlay;
 import xyz.peppie.splashhelper.model.SplashSession;
@@ -79,7 +92,13 @@ public class SplashHelperPlugin extends Plugin
 	private VisualNotificationOverlay visualNotificationOverlay;
 
 	@Inject
+	private SafetyModeOverlay safetyModeOverlay;
+
+	@Inject
 	private GriefPreventionOverlay griefPreventionOverlay;
+
+	@Inject
+	private MagicBonusWarningOverlay magicBonusWarningOverlay;
 
 	@Inject
 	private ClientToolbar clientToolbar;
@@ -106,6 +125,12 @@ public class SplashHelperPlugin extends Plugin
 	@Inject
 	private TileManager tileManager;
 
+	@Inject
+	private KeyManager keyManager;
+	
+	@Inject
+	private ClientThread clientThread;
+
 	// Statistics panel
 	private SplashStatisticsPanel statisticsPanel;
 	private NavigationButton navButton;
@@ -113,18 +138,21 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private Instant timerEnd;
 
+	@Getter
+	private boolean safetyModeEnabled = false;
+
 	private boolean hasNotified = false;
-	
-	// Deferred mutual aggro check
-	private Actor pendingTarget = null;
-	private int pendingTicks = 0;
-	private static final int MUTUAL_AGGRO_CHECK_TICKS = 3;
 	
 	// Track previous game state for welcome message
 	private GameState previousGameState = null;
 
 	// Session tracking delegated to SessionManager service
 	private Instant lastStatsSample = null;
+	
+	// Magic attack bonus tracking
+	@Getter
+	private boolean hasBadMagicBonus = false;
+	private Instant lastBonusWarning = null;
 
 	// Session delegation methods
 	public SplashSession getCurrentSession()
@@ -229,9 +257,17 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.add(boundaryOverlay);
 		overlayManager.add(visualNotificationOverlay);
 		overlayManager.add(griefPreventionOverlay);
+		overlayManager.add(magicBonusWarningOverlay);
+		overlayManager.add(safetyModeOverlay);
+
+		// Register key listener for safety mode
+		keyManager.registerKeyListener(safetyModeKeyListener);
+		
+		// Load safety mode state from config
+		safetyModeEnabled = config.safetyModeEnabled();
 
 		// Create statistics panel
-		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager);
+		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager);
 		
 		final BufferedImage icon = ImageUtil.loadImageResource(SplashHelperPlugin.class, "icon.png");
 		
@@ -253,6 +289,11 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.remove(boundaryOverlay);
 		overlayManager.remove(visualNotificationOverlay);
 		overlayManager.remove(griefPreventionOverlay);
+		overlayManager.remove(magicBonusWarningOverlay);
+		overlayManager.remove(safetyModeOverlay);
+
+		// Unregister key listener
+		keyManager.unregisterKeyListener(safetyModeKeyListener);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -289,6 +330,30 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		previousGameState = currentState;
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (!event.getGroup().equals("splashhelper"))
+		{
+			return;
+		}
+
+		// Rebuild statistics panel when any statistics panel config changes
+		if (event.getKey().startsWith("overallStatFields") ||
+			event.getKey().startsWith("currentSessionFields") ||
+			event.getKey().startsWith("sessionHistoryFields") ||
+			event.getKey().equals("showOverallStats") ||
+			event.getKey().equals("showCurrentSession") ||
+			event.getKey().equals("showSessionHistory"))
+		{
+			if (statisticsPanel != null)
+			{
+				statisticsPanel.rebuildPanels();
+				log.debug("Statistics panel rebuilt due to config change: {}", event.getKey());
+			}
+		}
 	}
 
 	@Subscribe
@@ -364,6 +429,9 @@ public class SplashHelperPlugin extends Plugin
 			return;
 		}
 
+		// Check magic attack bonus
+		hasBadMagicBonus = hasBadMagicAttackBonus();
+
 		if (tileManager.updateKnightPositionTracking())
 		{
 			notificationService.sendBoundaryNotification("Knight reached boundary tile!");
@@ -403,8 +471,43 @@ public class SplashHelperPlugin extends Plugin
 	@SuppressWarnings("deprecation")
 	public void onMenuOpened(MenuOpened event)
 	{
-		// Add "Knight Boundary" submenu to tile right-click menu
 		MenuEntry[] entries = event.getMenuEntries();
+		
+		// Remove "Attack" option from knights if magic bonus is too high
+		if (hasBadMagicBonus)
+		{
+			String configuredNpc = config.targetNpc().getNpcName();
+			java.util.List<MenuEntry> filteredEntries = new java.util.ArrayList<>();
+			
+			for (MenuEntry entry : entries)
+			{
+				boolean shouldRemove = false;
+				
+				if (entry.getOption() != null && entry.getOption().equalsIgnoreCase("Attack"))
+				{
+					String targetName = cleanNpcName(entry.getTarget());
+					if (configuredNpc != null && !configuredNpc.isEmpty() && 
+						isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
+					{
+						shouldRemove = true;
+					}
+				}
+				
+				if (!shouldRemove)
+				{
+					filteredEntries.add(entry);
+				}
+			}
+			
+			// Update menu entries if we removed any
+			if (filteredEntries.size() < entries.length)
+			{
+				client.setMenuEntries(filteredEntries.toArray(new MenuEntry[0]));
+				entries = client.getMenuEntries();
+			}
+		}
+		
+		// Add "Knight Boundary" submenu to tile right-click menu
 		
 		// Find the first Walk menu entry to get tile coordinates
 		for (MenuEntry entry : entries)
@@ -645,6 +748,15 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
+		// Safety mode action filtering
+		if (safetyModeEnabled && shouldBlockAction(event))
+		{
+			event.consume();
+			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
+				"<col=ff0000>Safety Mode: This action is blocked while safety mode is enabled.</col>", null);
+			return;
+		}
+
 		// When hasEscaped is true and player interacts, mute notifications until knight returns
 		if (tileManager.isHasEscaped() && !notificationService.areNotificationsMuted())
 		{
@@ -676,6 +788,24 @@ public class SplashHelperPlugin extends Plugin
 		{
 			if (isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
 			{
+				// Check if player is trying to attack with bad magic bonus
+				String menuOption = event.getMenuOption();
+				if (menuOption != null && menuOption.equalsIgnoreCase("Attack") && hasBadMagicBonus)
+				{
+					// Block the attack action
+					event.consume();
+					
+					// Show warning notification
+					Instant now = Instant.now();
+					if (lastBonusWarning == null || Duration.between(lastBonusWarning, now).getSeconds() > 5)
+					{
+						client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
+							"<col=ff0000>Warning: Your magic attack bonus is too high for splashing! (Need -64 or lower)</col>", null);
+						lastBonusWarning = now;
+					}
+					return;
+				}
+
 				// Only restart timer if session is already active
 				// Session start is handled by onInteractingChanged
 				if (timerEnd != null && timerEnd.isAfter(Instant.now()))
@@ -729,6 +859,54 @@ public class SplashHelperPlugin extends Plugin
 		
 		// Trim any remaining whitespace
 		return cleaned.trim();
+	}
+
+	/**
+	 * Check if the player's magic attack bonus is too high for splashing.
+	 * For reliable splashing, magic attack bonus should be -64 or lower.
+	 * @return true if magic attack bonus is greater than -64 (too high)
+	 */
+	private boolean hasBadMagicAttackBonus()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+
+		// Get magic attack bonus directly from client
+		int magicAttackBonus = client.getBoostedSkillLevel(Skill.MAGIC);
+		
+		// Actually we need the equipment bonus, not skill level
+		// Use the player's combat stats - magic attack is stored in the player's stats
+		// For now, we'll check equipment manually
+		
+		// Get equipment container
+		ItemContainer equipment = client.getItemContainer(InterfaceID.INVENTORY);
+		if (equipment == null)
+		{
+			return false;
+		}
+
+		magicAttackBonus = 0;
+
+		// Sum up magic attack bonus from all equipment slots
+		Item[] items = equipment.getItems();
+		for (int i = 0; i < items.length; i++)
+		{
+			Item item = items[i];
+			if (item != null && item.getId() > 0)
+			{
+				ItemStats itemStats = itemManager.getItemStats(item.getId());
+				if (itemStats != null && itemStats.getEquipment() != null)
+				{
+					magicAttackBonus += itemStats.getEquipment().getAmagic();
+				}
+			}
+		}
+
+		// Return true if bonus is greater than -64 (bad for splashing)
+		return magicAttackBonus > -64;
 	}
 
 	// ==================== Session Management ====================
@@ -817,15 +995,6 @@ public class SplashHelperPlugin extends Plugin
 	public int getRemainingCastsForCurrentSpell()
 	{
 		return runeCalculator.getRemainingCasts(getCurrentSpell());
-	}
-
-	/**
-	 * Get the actual runes being consumed for the current spell.
-	 * Delegates to RuneCalculator service.
-	 */
-	private java.util.List<int[]> getActualRuneUsage()
-	{
-		return runeCalculator.getActualRuneUsage(getCurrentSpell());
 	}
 
 	/**
@@ -941,62 +1110,6 @@ public class SplashHelperPlugin extends Plugin
 		}
 	}
 
-	
-	/**
-	 * Calculate the total cost of runes used based on GE prices.
-	 * Must be called on the client thread.
-	 */
-	private long calculateRuneCost(java.util.List<int[]> runeUsage)
-	{
-		if (runeUsage == null || runeUsage.isEmpty())
-		{
-			return 0;
-		}
-
-		SplashSession session = sessionManager.getCurrentSession();
-		int spellsCast = session != null ? session.getSpellsCast() : 0;
-
-		long totalCost = 0;
-		for (int[] rune : runeUsage)
-		{
-			// Validate rune array has expected length
-			if (rune == null || rune.length < 2)
-			{
-				continue;
-			}
-			
-			int itemId = rune[0];
-			int amountPerCast = rune[1];
-			
-			// Skip invalid item IDs
-			if (itemId <= 0 || amountPerCast <= 0)
-			{
-				continue;
-			}
-			
-			int totalUsed = spellsCast * amountPerCast;
-			if (totalUsed <= 0)
-			{
-				continue;
-			}
-			
-			// Validate itemManager before getting price
-			if (itemManager == null)
-			{
-				continue;
-			}
-			
-			int price = itemManager.getItemPrice(itemId);
-			if (price < 0)
-			{
-				continue; // Skip items with invalid prices
-			}
-			
-			totalCost += (long) price * totalUsed;
-		}
-		return totalCost;
-	}
-
 	/**
 	 * Update visual notification state when timer expires.
 	 */
@@ -1068,18 +1181,16 @@ public class SplashHelperPlugin extends Plugin
 			// Update cached values on client thread for UI access
 			cachedRemainingCasts = getRemainingCastsForCurrentSpell();
 			cachedInfiniteRunes = getInfiniteRunesFromEquipment();
-			cachedActualRuneUsage = getActualRuneUsage();
-			cachedRuneCost = calculateRuneCost(cachedActualRuneUsage);
 			
 			Instant now = Instant.now();
 			if (sessionManager.hasActiveSession())
 			{
-				// Continuously update session's rune data while active (so it's preserved on finalization)
+				// Get accumulated rune usage from session (tracked per cast)
 				SplashSession currentSession = sessionManager.getCurrentSession();
-				if (currentSession != null && cachedActualRuneUsage != null && !cachedActualRuneUsage.isEmpty())
+				if (currentSession != null)
 				{
-					currentSession.setActualRuneUsage(new java.util.ArrayList<>(cachedActualRuneUsage));
-					currentSession.setRuneCostGp(cachedRuneCost);
+					cachedActualRuneUsage = currentSession.getActualRuneUsage();
+					cachedRuneCost = currentSession.getRuneCostGp();
 				}
 				
 				// Check for session timeout via service
@@ -1104,4 +1215,130 @@ public class SplashHelperPlugin extends Plugin
 			}
 		}
 	}
-}
+
+	/**
+	 * Check if an action should be blocked in safety mode.
+	 */
+	private boolean shouldBlockAction(MenuOptionClicked event)
+	{
+		String option = event.getMenuOption();
+		
+		// Allowed actions that reset timer - return false (not blocked)
+		if (isAllowedAction(event))
+		{
+			// Reset splash timer for allowed actions
+			if (timerEnd != null && timerEnd.isAfter(Instant.now()))
+			{
+				startTimer();
+				log.info("Timer restarted by allowed action: {}", option);
+			}
+			return false;
+		}
+		
+		// Block all other actions
+		return true;
+	}
+
+	/**
+	 * Check if an action is allowed in safety mode.
+	 */
+	private boolean isAllowedAction(MenuOptionClicked event)
+	{
+		String option = event.getMenuOption();
+		MenuAction action = event.getMenuAction();
+		
+		// Allow clicking the knight (NPC interactions)
+		if (action == MenuAction.NPC_FIRST_OPTION ||
+			action == MenuAction.NPC_SECOND_OPTION ||
+			action == MenuAction.NPC_THIRD_OPTION ||
+			action == MenuAction.NPC_FOURTH_OPTION ||
+			action == MenuAction.NPC_FIFTH_OPTION)
+		{
+			String targetName = cleanNpcName(event.getMenuTarget());
+			String configuredNpc = config.targetNpc().getNpcName();
+			if (configuredNpc != null && !configuredNpc.isEmpty() &&
+				targetName != null && targetName.equalsIgnoreCase(configuredNpc))
+			{
+				return true;
+			}
+		}
+		
+		// Allow unequipping items from equipment menu
+		if (action == MenuAction.CC_OP && option != null && option.equalsIgnoreCase("Remove"))
+		{
+			return true;
+		}
+		
+		// Allow clicking "use" menu option
+		if (option != null && option.equalsIgnoreCase("Use"))
+		{
+			return true;
+		}
+		
+		// Allow clicking stackable items in inventory (but only if they're actually stackable)
+		if (action == MenuAction.CC_OP)
+		{
+			ItemContainer inventory = client.getItemContainer(InterfaceID.INVENTORY);
+			if (inventory != null)
+			{
+				Item item = inventory.getItem(event.getParam0());
+				if (item != null)
+				{
+					ItemComposition itemDef = client.getItemDefinition(item.getId());
+					if (itemDef != null && itemDef.isStackable())
+					{
+						return true;
+					}
+				}
+			}
+			// If it's an inventory item action but not stackable, it's blocked
+			// Don't return false here, let the method continue to check other conditions
+		}
+		
+		// Block all other actions
+		return false;
+	}
+
+	/**
+	 * Toggle safety mode on/off.
+	 */
+	public void toggleSafetyMode()
+	{
+		safetyModeEnabled = !safetyModeEnabled;
+		log.info("Safety mode toggled: {}", safetyModeEnabled ? "ON" : "OFF");
+		
+		// Send notification to user (must be on client thread)
+		String message = safetyModeEnabled ? 
+			"<col=00ff00>Safety mode ENABLED</col>" : 
+			"<col=ff0000>Safety mode DISABLED</col>";
+		clientThread.invoke(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, null));
+	}
+
+	/**
+	 * Key listener for safety mode hotkey.
+	 */
+	private final KeyListener safetyModeKeyListener = new KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			ModifierlessKeybind hotkey = config.safetyModeHotkey();
+			if (hotkey.matches(e))
+			{
+				toggleSafetyMode();
+				e.consume();
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+
+	}

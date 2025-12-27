@@ -187,7 +187,7 @@ public class RuneCalculator
 
 			if (Constants.isBasicRune(id))
 			{
-				runeCounts.merge(id, qty, Integer::sum);
+				runeCounts.merge(id, qty, (existing, newValue) -> existing == null ? newValue : existing + newValue);
 			}
 
 			addCombinationRuneCounts(runeCounts, id, qty);
@@ -224,7 +224,7 @@ public class RuneCalculator
 			int amount = client.getVarbitValue(Constants.RUNE_POUCH_AMOUNT_VARBITS[i]);
 			if (runeId > 0 && amount > 0 && Constants.isCombinationRune(runeId))
 			{
-				comboRunes.merge(runeId, amount, Integer::sum);
+				comboRunes.merge(runeId, amount, (existing, newValue) -> existing == null ? newValue : existing + newValue);
 			}
 		}
 
@@ -239,34 +239,70 @@ public class RuneCalculator
 		switch (itemId)
 		{
 			case Constants.MIST_RUNE:
-				runeCounts.merge(Constants.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.WATER_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.AIR_RUNE, quantity,
+					(existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.WATER_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 			case Constants.DUST_RUNE:
-				runeCounts.merge(Constants.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.EARTH_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.AIR_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.EARTH_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 			case Constants.MUD_RUNE:
-				runeCounts.merge(Constants.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.EARTH_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.WATER_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.EARTH_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 			case Constants.SMOKE_RUNE:
-				runeCounts.merge(Constants.AIR_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.FIRE_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.AIR_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.FIRE_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 			case Constants.STEAM_RUNE:
-				runeCounts.merge(Constants.WATER_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.FIRE_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.WATER_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.FIRE_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 			case Constants.LAVA_RUNE:
-				runeCounts.merge(Constants.EARTH_RUNE, quantity, Integer::sum);
-				runeCounts.merge(Constants.FIRE_RUNE, quantity, Integer::sum);
+				runeCounts.merge(
+					Constants.EARTH_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
+				runeCounts.merge(
+					Constants.FIRE_RUNE,
+					quantity, (existing, newValue) -> existing == null ? newValue : existing + newValue
+				);
 				break;
 		}
 	}
 
 	/**
-	 * Add rune pouch contents to the rune count map.
+	 * Add rune counts from rune pouch to the map.
 	 */
 	private void addRunePouchCounts(Map<Integer, Integer> runeCounts)
 	{
@@ -277,7 +313,7 @@ public class RuneCalculator
 
 			if (runeId > 0 && amount > 0)
 			{
-				runeCounts.merge(runeId, amount, Integer::sum);
+				runeCounts.merge(runeId, amount, (existing, newValue) -> existing == null ? newValue : existing + newValue);
 				addCombinationRuneCounts(runeCounts, runeId, amount);
 			}
 		}

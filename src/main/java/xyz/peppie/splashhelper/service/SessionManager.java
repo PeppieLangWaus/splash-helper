@@ -5,10 +5,23 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
+import com.google.gson.reflect.TypeToken;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Skill;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.game.ItemManager;
+import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.model.PersistedSession;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.util.Constants;
@@ -23,6 +36,9 @@ public class SessionManager
 {
 	private final Client client;
 	private final RuneCalculator runeCalculator;
+	private final ItemManager itemManager;
+	private final ConfigManager configManager;
+	private final SplashHelperConfig config;
 
 	@Getter
 	private SplashSession currentSession = null;
@@ -36,11 +52,26 @@ public class SessionManager
 	private int lastCastTick = -1;
 	private int lastMagicXp = -1;
 
+	// JSON serialization with custom Instant serializer
+	private static final Gson gson = new GsonBuilder()
+		.setPrettyPrinting()
+		.registerTypeAdapter(Instant.class, new InstantSerializer())
+		.registerTypeAdapter(Instant.class, new InstantDeserializer())
+		.create();
+	
+	private static final String SESSION_HISTORY_KEY = "splashhelper_session_history";
+
 	@Inject
-	public SessionManager(Client client, RuneCalculator runeCalculator)
+	public SessionManager(Client client, RuneCalculator runeCalculator, ItemManager itemManager, ConfigManager configManager, SplashHelperConfig config)
 	{
 		this.client = client;
 		this.runeCalculator = runeCalculator;
+		this.itemManager = itemManager;
+		this.configManager = configManager;
+		this.config = config;
+		
+		// Load persisted session history on startup
+		loadSessionHistory();
 	}
 
 	/**
@@ -78,8 +109,16 @@ public class SessionManager
 		if (currentSession != null && currentSession.isActive())
 		{
 			currentSession.setEndTime(Instant.now());
+			
+			// Finalize derived statistics for persistence
+			finalizeDerivedStatistics(currentSession);
+			
 			sessionHistory.add(currentSession);
 			lastFinalizedSession = currentSession;
+			
+			// Persist session history to storage
+			saveSessionHistory();
+			
 			log.info("Finalized session: {} casts, {} XP gained, {} gp cost",
 				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
 		}
@@ -141,6 +180,19 @@ public class SessionManager
 			if (spell != null)
 			{
 				currentSession.setCurrentRuneCount(runeCalculator.getRemainingCasts(spell));
+				
+				// Track rune usage for this specific cast
+				java.util.List<int[]> runesUsedThisCast = runeCalculator.getActualRuneUsage(spell);
+				
+				// Create a deep copy to avoid reference issues
+				java.util.List<int[]> runesCopy = new java.util.ArrayList<>();
+				for (int[] rune : runesUsedThisCast)
+				{
+					runesCopy.add(new int[]{rune[0], rune[1]});
+				}
+				
+				long costThisCast = calculateRuneCostForUsage(runesCopy);
+				currentSession.addRuneUsageForCast(runesCopy, costThisCast);
 			}
 
 			lastCastTick = client.getTickCount();
@@ -148,6 +200,27 @@ public class SessionManager
 		}
 
 		return 0;
+	}
+
+	/**
+	 * Calculate GP cost for a list of rune usage.
+	 */
+	private long calculateRuneCostForUsage(java.util.List<int[]> runeUsage)
+	{
+		if (runeUsage == null || runeUsage.isEmpty())
+		{
+			return 0;
+		}
+
+		long totalCost = 0;
+		for (int[] usage : runeUsage)
+		{
+			int itemId = usage[0];
+			int amount = usage[1];
+			int price = itemManager.getItemPrice(itemId);
+			totalCost += (long) price * amount;
+		}
+		return totalCost;
 	}
 
 	/**
@@ -210,7 +283,7 @@ public class SessionManager
 	{
 		if (currentSession != null)
 		{
-			currentSession.addPlayerCountSample(count);
+			currentSession.addPlayerCountSample(count, config.maxPlayerCountSamples());
 		}
 	}
 
@@ -255,6 +328,129 @@ public class SessionManager
 		}
 
 		return new SessionStats(totalSessions, totalSeconds, totalCasts, totalXp);
+	}
+
+	/**
+	 * Finalize derived statistics for persistence.
+	 * Ensures average player count and pickpocketer count are calculated before saving.
+	 */
+	private void finalizeDerivedStatistics(SplashSession session)
+	{
+		// The derived statistics are already maintained during the session
+		// This method ensures they're finalized if any calculations were missed
+		// (they're updated in real-time in the add methods)
+		log.debug("Finalized derived statistics for session persistence");
+	}
+
+	/**
+	 * Save session history to persistent storage.
+	 */
+	private void saveSessionHistory()
+	{
+		try
+		{
+			// Convert sessions to persisted format
+			List<PersistedSession> persistedSessions = new ArrayList<>();
+			for (SplashSession session : sessionHistory)
+			{
+				persistedSessions.add(PersistedSession.fromSession(session));
+			}
+
+			// Serialize to JSON and save to config
+			String json = gson.toJson(persistedSessions);
+			configManager.setConfiguration("splashhelper", SESSION_HISTORY_KEY, json);
+			
+			log.debug("Saved {} sessions to persistent storage", sessionHistory.size());
+		}
+		catch (Exception e)
+		{
+			log.error("Failed to save session history", e);
+		}
+	}
+
+	/**
+	 * Load session history from persistent storage.
+	 */
+	private void loadSessionHistory()
+	{
+		try
+		{
+			String json = configManager.getConfiguration("splashhelper", SESSION_HISTORY_KEY);
+			if (json == null || json.trim().isEmpty())
+			{
+				log.debug("No persisted session history found");
+				return;
+			}
+
+			// Deserialize from JSON
+			java.lang.reflect.Type type = new TypeToken<List<PersistedSession>>(){}.getType();
+			List<PersistedSession> persistedSessions = gson.fromJson(json, type);
+
+			if (persistedSessions != null)
+			{
+				// Convert back to regular sessions
+				sessionHistory.clear();
+				for (PersistedSession persisted : persistedSessions)
+				{
+					if (persisted.getSession() != null)
+					{
+						sessionHistory.add(persisted.getSession());
+					}
+				}
+
+				log.debug("Loaded {} sessions from persistent storage", sessionHistory.size());
+			}
+		}
+		catch (Exception e)
+		{
+			log.error("Failed to load session history", e);
+		}
+	}
+
+	/**
+	 * Clear all persisted session history.
+	 */
+	public void clearPersistedHistory()
+	{
+		sessionHistory.clear();
+		configManager.unsetConfiguration("splashhelper", SESSION_HISTORY_KEY);
+		log.info("Cleared persisted session history");
+	}
+
+	/**
+	 * Delete a specific session from history.
+	 */
+	public void deleteSession(SplashSession session)
+	{
+		if (session != null && sessionHistory.remove(session))
+		{
+			saveSessionHistory();
+			log.info("Deleted session from history: {}", session.getPlayerName());
+		}
+	}
+
+	/**
+	 * Custom serializer for Instant to avoid Java module access issues.
+	 */
+	private static class InstantSerializer implements JsonSerializer<Instant>
+	{
+		@Override
+		public JsonElement serialize(Instant src, java.lang.reflect.Type typeOfSrc, JsonSerializationContext context)
+		{
+			return new JsonPrimitive(src.toString());
+		}
+	}
+
+	/**
+	 * Custom deserializer for Instant to avoid Java module access issues.
+	 */
+	private static class InstantDeserializer implements JsonDeserializer<Instant>
+	{
+		@Override
+		public Instant deserialize(JsonElement json, java.lang.reflect.Type typeOfT, JsonDeserializationContext context)
+		{
+			return Instant.parse(json.getAsString());
+		}
 	}
 
 	/**

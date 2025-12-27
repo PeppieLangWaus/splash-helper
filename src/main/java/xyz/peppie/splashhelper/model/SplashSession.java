@@ -2,8 +2,10 @@ package xyz.peppie.splashhelper.model;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
@@ -32,19 +34,24 @@ public class SplashSession
 	@Setter
 	private Instant endTime = null;
 
-	// Player tracking
-	private final Set<String> pickpocketers = new HashSet<>();
-	private final List<Integer> playerCountSamples = new ArrayList<>();
+	// Player tracking (transient - not persisted)
+	private transient final Set<String> pickpocketers = new HashSet<>();
+	private transient final List<Integer> playerCountSamples = new ArrayList<>();
 	@Setter
 	private int highestPlayerCount = 0;
+	
+	// Derived statistics for persistence
+	@Setter
+	private int averagePlayerCount = 0;
+	@Setter
+	private int pickpocketerCount = 0;
 
 	// Rune tracking
 	@Setter
 	private int startingRuneCount = 0;
 	@Setter
 	private int currentRuneCount = 0;
-	@Setter
-	private List<int[]> actualRuneUsage = new ArrayList<>();  // Runes actually consumed (excludes infinite)
+	private final Map<Integer, Integer> runeUsageMap = new HashMap<>();  // ItemId -> Total amount used
 	@Setter
 	private long runeCostGp = 0;  // Total GP cost of runes used
 
@@ -104,30 +111,36 @@ public class SplashSession
 		if (playerName != null && !playerName.isEmpty())
 		{
 			pickpocketers.add(playerName);
+			pickpocketerCount = pickpocketers.size();
 		}
 	}
 
 	public int getPickpocketerCount()
 	{
-		return pickpocketers.size();
+		return pickpocketerCount;
 	}
 
-	public void addPlayerCountSample(int count)
+	public void addPlayerCountSample(int count, int maxSamples)
 	{
 		playerCountSamples.add(count);
 		if (count > highestPlayerCount)
 		{
 			highestPlayerCount = count;
 		}
+		
+		// Enforce maximum sample limit to prevent memory issues
+		while (playerCountSamples.size() > maxSamples)
+		{
+			playerCountSamples.remove(0); // Remove oldest sample
+		}
+		
+		// Update average for persistence
+		averagePlayerCount = (int) Math.round(playerCountSamples.stream().mapToInt(Integer::intValue).average().orElse(0));
 	}
 
 	public double getAveragePlayerCount()
 	{
-		if (playerCountSamples.isEmpty())
-		{
-			return 0;
-		}
-		return playerCountSamples.stream().mapToInt(Integer::intValue).average().orElse(0);
+		return averagePlayerCount;
 	}
 
 	public void incrementSpellsCast()
@@ -138,6 +151,47 @@ public class SplashSession
 	public void incrementKnightMovements()
 	{
 		knightMovements++;
+	}
+
+	/**
+	 * Add rune usage for a single cast to the accumulated total.
+	 * This allows tracking mixed spell usage without recalculating.
+	 * @param runesUsedThisCast List of [itemId, amount] pairs for this cast
+	 * @param costGp GP cost of runes used in this cast
+	 */
+	public void addRuneUsageForCast(List<int[]> runesUsedThisCast, long costGp)
+	{
+		if (runesUsedThisCast == null || runesUsedThisCast.isEmpty())
+		{
+			return;
+		}
+
+		// Accumulate rune usage using Map (no reference issues)
+		for (int[] runeUsage : runesUsedThisCast)
+		{
+			int itemId = runeUsage[0];
+			int amount = runeUsage[1];
+			
+			// Simply add to the map - Map.put handles both new and existing entries
+			runeUsageMap.put(itemId, runeUsageMap.getOrDefault(itemId, 0) + amount);
+		}
+
+		// Accumulate cost
+		runeCostGp += costGp;
+	}
+
+	/**
+	 * Get actual rune usage as List<int[]> for compatibility with existing code.
+	 * @return List of [itemId, totalAmount] pairs
+	 */
+	public List<int[]> getActualRuneUsage()
+	{
+		List<int[]> result = new ArrayList<>();
+		for (Map.Entry<Integer, Integer> entry : runeUsageMap.entrySet())
+		{
+			result.add(new int[]{entry.getKey(), entry.getValue()});
+		}
+		return result;
 	}
 
 	public void finalizeSession()

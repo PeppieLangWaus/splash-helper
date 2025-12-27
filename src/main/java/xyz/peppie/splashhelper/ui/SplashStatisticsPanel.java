@@ -13,18 +13,22 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.game.ItemManager;
 import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.model.OverallStatField;
+import xyz.peppie.splashhelper.model.SessionStatField;
 import xyz.peppie.splashhelper.SplashHelperConfig;
 import xyz.peppie.splashhelper.SplashHelperPlugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.components.PluginErrorPanel;
+import xyz.peppie.splashhelper.service.SessionManager;
 
-public class SplashStatisticsPanel extends PluginPanel
+public class SplashStatisticsPanel extends PluginPanel implements SplashSessionHistoryBox.SessionDeleteListener
 {
     private final SplashHelperPlugin plugin;
     private final SplashHelperConfig config;
     private final ItemManager itemManager;
+    private final SessionManager sessionManager;
 
     // Main layout container
     private final JPanel layoutPanel = new JPanel();
@@ -67,12 +71,13 @@ public class SplashStatisticsPanel extends PluginPanel
     private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
     private int lastHistorySize = 0;
 
-    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager)
+    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager)
     {
         super(true);
         this.plugin = plugin;
         this.config = config;
         this.itemManager = itemManager;
+        this.sessionManager = sessionManager;
 
         setBorder(new EmptyBorder(6, 6, 6, 6));
         setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -82,16 +87,68 @@ public class SplashStatisticsPanel extends PluginPanel
         layoutPanel.setLayout(new BoxLayout(layoutPanel, BoxLayout.Y_AXIS));
         add(layoutPanel, BorderLayout.NORTH);
 
-        // Add sub-panels to layout
-        layoutPanel.add(buildOverallPanel());
-        layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
-        layoutPanel.add(buildCurrentSessionPanel(itemManager));
-        layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
-        layoutPanel.add(buildHistoryPanel());
+        // Build initial panels
+        buildPanels();
 
         // Add error panel (shown when no data)
         errorPanel.setContent("Splash Statistics", "Start splashing to see statistics.");
         add(errorPanel, BorderLayout.CENTER);
+    }
+
+    /**
+     * Rebuild all panels to reflect current config settings.
+     * Called when config changes to update visibility of fields.
+     */
+    public void rebuildPanels()
+    {
+        SwingUtilities.invokeLater(() ->
+        {
+            // Clear existing panels
+            layoutPanel.removeAll();
+            overallPanel.removeAll();
+            currentPanel.removeAll();
+            historyContainer.removeAll();
+            historyBoxes.clear();
+            lastHistorySize = 0;
+
+            // Rebuild panels with current config
+            buildPanels();
+
+            // Restore history if session history panel is enabled
+            if (config.showSessionHistory())
+            {
+                List<SplashSession> history = plugin.getSessionHistory();
+                if (history != null && !history.isEmpty())
+                {
+                    updateHistoryDisplay(history);
+                }
+            }
+
+            // Refresh display
+            revalidate();
+            repaint();
+        });
+    }
+
+    private void buildPanels()
+    {
+        // Only add panels if they are enabled in config
+        if (config.showOverallStats())
+        {
+            layoutPanel.add(buildOverallPanel());
+            layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        }
+        
+        if (config.showCurrentSession())
+        {
+            layoutPanel.add(buildCurrentSessionPanel(itemManager));
+            layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        }
+        
+        if (config.showSessionHistory())
+        {
+            layoutPanel.add(buildHistoryPanel());
+        }
     }
 
     private JPanel buildOverallPanel()
@@ -115,18 +172,34 @@ public class SplashStatisticsPanel extends PluginPanel
         overallPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
         overallContainer.add(overallPanel);
 
+        // Always show these fields (not configurable)
         addStatRow(overallPanel, "Sessions:", overallSessionsLabel);
         addStatRow(overallPanel, "Total Time:", overallTimeLabel);
-        addStatRow(overallPanel, "Total Casts:", overallCastsLabel);
-        addStatRow(overallPanel, "Total XP:", overallXpLabel);
-        addStatRow(overallPanel, "Total Cost:", overallCostLabel);
-        addStatRow(overallPanel, "Remaining:", overallRemainingLabel);
-        addStatRow(overallPanel, "Hours Remaining:", overallHoursRemainingLabel);
-        addStatRow(overallPanel, "Potential XP:", overallPotentialXpLabel);
-        addStatRow(overallPanel, "GP/Hour:", overallGpPerHourLabel);
+        
+        // Conditionally show configurable fields
+        if (config.overallStatFields().contains(OverallStatField.TOTAL_CASTS))
+            addStatRow(overallPanel, "Total Casts:", overallCastsLabel);
+        if (config.overallStatFields().contains(OverallStatField.TOTAL_XP))
+            addStatRow(overallPanel, "Total XP:", overallXpLabel);
+        if (config.overallStatFields().contains(OverallStatField.TOTAL_COST))
+            addStatRow(overallPanel, "Total Cost:", overallCostLabel);
+        if (config.overallStatFields().contains(OverallStatField.REMAINING_CASTS))
+            addStatRow(overallPanel, "Remaining:", overallRemainingLabel);
+        if (config.overallStatFields().contains(OverallStatField.HOURS_REMAINING))
+            addStatRow(overallPanel, "Hours Remaining:", overallHoursRemainingLabel);
+        if (config.overallStatFields().contains(OverallStatField.POTENTIAL_XP))
+            addStatRow(overallPanel, "Potential XP:", overallPotentialXpLabel);
+        if (config.overallStatFields().contains(OverallStatField.GP_PER_HOUR))
+            addStatRow(overallPanel, "GP/Hour:", overallGpPerHourLabel);
+        
+        // Always show status (not configurable)
         addStatRow(overallPanel, "Status:", overallStatusLabel);
-        addStatRow(overallPanel, "Current Players:", overallPlayerCountLabel);
-        addStatRow(overallPanel, "Highest Players:", overallHighestPlayerCountLabel);
+        
+        // Conditionally show player count fields
+        if (config.overallStatFields().contains(OverallStatField.CURRENT_PLAYERS))
+            addStatRow(overallPanel, "Current Players:", overallPlayerCountLabel);
+        if (config.overallStatFields().contains(OverallStatField.HIGHEST_PLAYERS))
+            addStatRow(overallPanel, "Highest Players:", overallHighestPlayerCountLabel);
 
         return overallContainer;
     }
@@ -152,17 +225,27 @@ public class SplashStatisticsPanel extends PluginPanel
         currentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
         currentContainer.add(currentPanel);
 
+        // Always show these fields (not configurable)
         addStatRow(currentPanel, "Player:", playerLabel);
-        addStatRow(currentPanel, "Spell:", spellLabel);
         addStatRow(currentPanel, "World:", worldLabel);
         addStatRow(currentPanel, "Knight:", stickyLabel);
         addStatRow(currentPanel, "Time:", timeLabel);
-        addStatRow(currentPanel, "Casts:", castsLabel);
-        addStatRow(currentPanel, "XP Gained:", xpGainedLabel);
-        addStatRow(currentPanel, "XP/Hour:", xpHourLabel);
-        addStatRow(currentPanel, "Rune Cost:", runeCostLabel);
-        addStatRow(currentPanel, "Nearby Players:", playerCountLabel);
-        addStatRow(currentPanel, "Highest Players:", highestPlayerCountLabel);
+        
+        // Conditionally show configurable fields
+        if (config.currentSessionFields().contains(SessionStatField.SPELL))
+            addStatRow(currentPanel, "Spell:", spellLabel);
+        if (config.currentSessionFields().contains(SessionStatField.CASTS))
+            addStatRow(currentPanel, "Casts:", castsLabel);
+        if (config.currentSessionFields().contains(SessionStatField.XP_GAINED))
+            addStatRow(currentPanel, "XP Gained:", xpGainedLabel);
+        if (config.currentSessionFields().contains(SessionStatField.XP_PER_HOUR))
+            addStatRow(currentPanel, "XP/Hour:", xpHourLabel);
+        if (config.currentSessionFields().contains(SessionStatField.RUNE_COST))
+            addStatRow(currentPanel, "Rune Cost:", runeCostLabel);
+        if (config.currentSessionFields().contains(SessionStatField.NEARBY_PLAYERS))
+            addStatRow(currentPanel, "Nearby Players:", playerCountLabel);
+        if (config.currentSessionFields().contains(SessionStatField.HIGHEST_PLAYERS))
+            addStatRow(currentPanel, "Highest Players:", highestPlayerCountLabel);
 
         supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
         currentContainer.add(supplyBox);
@@ -184,29 +267,27 @@ public class SplashStatisticsPanel extends PluginPanel
             return;
         }
 
-        // New sessions added to history
-        for (int i = lastHistorySize; i < history.size(); i++)
+        // Clear existing history boxes
+        historyContainer.removeAll();
+        historyBoxes.clear();
+
+        // Add session boxes in reverse order (newest first)
+        for (int i = history.size() - 1; i >= 0; i--)
         {
             SplashSession session = history.get(i);
             // Only the latest session should be expanded, others collapsed
             boolean isLatest = (i == history.size() - 1);
             
-            // Collapse all existing boxes when a new one is added
-            for (SplashSessionHistoryBox box : historyBoxes)
+            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest, itemManager, config, sessionManager, this);
+            historyBoxes.add(historyBox);
+            
+            // Add to container
+            historyContainer.add(historyBox);
+            
+            // Add spacer between boxes
+            if (i > 0)
             {
-                box.collapse();
-            }
-            
-            SplashSessionHistoryBox historyBox = new SplashSessionHistoryBox(session, !isLatest, itemManager);
-            historyBoxes.add(historyBox); // Add to front of list
-            
-            // Add new session at the top (index 0)
-            historyContainer.add(historyBox, 0);
-            
-            // Add spacer after the new box (which is now at index 0)
-            if (historyContainer.getComponentCount() > 1)
-            {
-                historyContainer.add(javax.swing.Box.createVerticalStrut(10), 1);
+                historyContainer.add(javax.swing.Box.createVerticalStrut(10));
             }
         }
 
@@ -486,4 +567,42 @@ public class SplashStatisticsPanel extends PluginPanel
         return String.valueOf(number);
     }
 
+    @Override
+    public void onSessionDeleted(SplashSessionHistoryBox box)
+    {
+        // Remove the box from our tracking list
+        historyBoxes.remove(box);
+        
+        // Find the index of the box in the container
+        int boxIndex = -1;
+        for (int i = 0; i < historyContainer.getComponentCount(); i++)
+        {
+            if (historyContainer.getComponent(i) == box)
+            {
+                boxIndex = i;
+                break;
+            }
+        }
+        
+        if (boxIndex >= 0)
+        {
+            // Remove the box
+            historyContainer.remove(box);
+            
+            // Remove the associated spacer (if it exists)
+            // Spacers are added after boxes, so check if there's a spacer at boxIndex + 1
+            if (boxIndex < historyContainer.getComponentCount())
+            {
+                java.awt.Component nextComponent = historyContainer.getComponent(boxIndex);
+                if (nextComponent instanceof javax.swing.Box.Filler)
+                {
+                    historyContainer.remove(nextComponent);
+                }
+            }
+            
+            // Refresh the container
+            historyContainer.revalidate();
+            historyContainer.repaint();
+        }
+    }
 }
