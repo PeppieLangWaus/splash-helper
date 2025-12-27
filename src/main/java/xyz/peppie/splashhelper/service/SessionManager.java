@@ -6,7 +6,6 @@ import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializationContext;
 import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
@@ -39,6 +38,7 @@ public class SessionManager
 	private final ItemManager itemManager;
 	private final ConfigManager configManager;
 	private final SplashHelperConfig config;
+	private final Gson gson;
 
 	@Getter
 	private SplashSession currentSession = null;
@@ -52,23 +52,21 @@ public class SessionManager
 	private int lastCastTick = -1;
 	private int lastMagicXp = -1;
 
-	// JSON serialization with custom Instant serializer
-	private static final Gson gson = new GsonBuilder()
-		.setPrettyPrinting()
-		.registerTypeAdapter(Instant.class, new InstantSerializer())
-		.registerTypeAdapter(Instant.class, new InstantDeserializer())
-		.create();
-	
 	private static final String SESSION_HISTORY_KEY = "splashhelper_session_history";
 
 	@Inject
-	public SessionManager(Client client, RuneCalculator runeCalculator, ItemManager itemManager, ConfigManager configManager, SplashHelperConfig config)
+	public SessionManager(Client client, RuneCalculator runeCalculator, ItemManager itemManager, ConfigManager configManager, SplashHelperConfig config, Gson gson)
 	{
 		this.client = client;
 		this.runeCalculator = runeCalculator;
 		this.itemManager = itemManager;
 		this.configManager = configManager;
 		this.config = config;
+		this.gson = gson.newBuilder()
+			.setPrettyPrinting()
+			.registerTypeAdapter(Instant.class, new InstantSerializer())
+			.registerTypeAdapter(Instant.class, new InstantDeserializer())
+			.create();
 		
 		// Load persisted session history on startup
 		loadSessionHistory();
