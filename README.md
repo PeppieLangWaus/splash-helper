@@ -9,6 +9,13 @@ A RuneLite plugin designed to assist with splashing, mostly focused on Ardy Knig
 - Audio and visual notifications when the timer expires
 - Customizable duration (default: 10 minutes)
 
+### Session Statistics & History
+- **Real-time session tracking** - Monitor casts, XP gained, rune costs, and more
+- **Session history** - Automatically saves and displays past splashing sessions
+- **Session deletion** - Right-click any session entry to delete unwanted sessions
+- **Detailed statistics** - Track player counts, knight movements, and pickpocketers
+- **Persistent storage** - Session history is saved between plugin restarts
+
 ### Tile Markers
 Three types of customizable tile markers:
 
@@ -22,7 +29,29 @@ When both **Knight Tile 1** and **Knight Tile 2** are set, the plugin automatica
 - Calculates movements per minute
 - Displays real-time statistics in the overlay
 
+### Safety Features
+- **Safety mode hotkey** - Toggle safety mode to prevent accidental interactions
+- **Magic bonus warnings** - Get notified when magic bonus equipment is missing
+
 ## Usage
+
+### Session Statistics & History
+
+1. **Viewing Session Statistics**
+   - Open the Splash Statistics panel from the RuneLite sidebar
+   - View real-time stats for active session (casts, XP, costs, etc.)
+   - Browse session history with detailed information for each session
+
+2. **Managing Session History**
+   - **Right-click** any session entry to open context menu
+   - Select **"Delete Session"** to remove unwanted sessions
+   - Confirm deletion in the dialog (shows session details)
+   - Sessions are removed from both UI and persistent storage
+
+3. **Configuring Session Display**
+   - Use plugin settings to choose which statistics to display
+   - Options include: spell, casts, XP gained, XP/hour, rune cost, player counts
+   - Toggle session history panel visibility
 
 ### Setting Up the Timer
 
@@ -64,12 +93,31 @@ The overlay displays (when visible):
 
 ## Configuration Options
 
+### Timer & NPC Settings
 | Setting | Description | Default |
 |---------|-------------|---------|
 | **Enable Welcome Message** | Display a welcome message when logging in | Enabled |
 | **NPC Name** | Name of the NPC to track (e.g., "Knight of Ardougne", "Rat") | "Rat" |
 | **Timer Duration** | Timer countdown duration in minutes | 13 |
 | **Show Timer Overlay** | Display the timer overlay on screen | Enabled |
+
+### Session Statistics Settings
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **Show Session History** | Display session history panel in statistics | Enabled |
+| **Session History Fields** | Choose which statistics to display in session entries | All fields enabled |
+| **Max Player Count Samples** | Maximum number of player count samples to store | 100 |
+
+### Safety & Warning Settings
+| Setting | Description | Default |
+|---------|-------------|---------|
+| **Safety Mode Hotkey** | Key combination to toggle safety mode | Not set |
+| **Safety Mode Enabled** | Whether safety mode is currently active | Disabled |
+| **Show Magic Bonus Warning** | Display warning when magic bonus equipment is missing | Enabled |
+
+### Tile Marker Colors
+| Setting | Description | Default |
+|---------|-------------|---------|
 | **Boundary Tile Color** | Color of the boundary tile marker (with alpha) | Red (semi-transparent) |
 | **Knight Tile 1 Color** | Color of the first movement tracking tile | Green |
 | **Knight Tile 2 Color** | Color of the second movement tracking tile | Blue |
