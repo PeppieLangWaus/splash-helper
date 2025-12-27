@@ -3,6 +3,7 @@ plugins {
 }
 
 repositories {
+	mavenLocal()
 	maven {
 		url = 'https://repo.runelite.net'
 		content {
@@ -31,10 +32,10 @@ version = '1.0-SNAPSHOT'
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'
 	options.release.set(11)
-	options.compilerArgs << "-Xlint:deprecation"
 }
 
 tasks.register('shadowJar', Jar) {
+	dependsOn configurations.testRuntimeClasspath
 	manifest {
 		attributes('Main-Class': 'xyz.peppie.splashhelper.SplashHelperPluginTest', 'Multi-Release': true)
 	}
@@ -43,8 +44,7 @@ tasks.register('shadowJar', Jar) {
 	from sourceSets.main.output
 	from sourceSets.test.output
 	from {
-		// Resolve dependencies but skip files that don't exist
-		configurations.testRuntimeClasspath.resolvedConfiguration.lenientConfiguration.files.collect { file ->
+		configurations.testRuntimeClasspath.collect { file ->
 			file.isDirectory() ? file : zipTree(file)
 		}
 	}
@@ -54,7 +54,6 @@ tasks.register('shadowJar', Jar) {
 	exclude 'META-INF/*.DSA'
 	exclude 'META-INF/*.RSA'
 	exclude '**/module-info.class'
-	exclude '**/lwjgl*natives-linux-arm64.jar'
 
 	group = BasePlugin.BUILD_GROUP
 	archiveClassifier.set('shadow')
