@@ -248,7 +248,7 @@ public class SplashHelperPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
-		log.info("Splash Helper started!");
+		log.debug("Splash Helper started!");
 		overlay.setPlugin(this, tileManager);
 		overlayManager.add(overlay);
 		
@@ -284,7 +284,7 @@ public class SplashHelperPlugin extends Plugin
 	@Override
 	protected void shutDown() throws Exception
 	{
-		log.info("Splash Helper stopped!");
+		log.debug("Splash Helper stopped!");
 		overlayManager.remove(overlay);
 		overlayManager.remove(boundaryOverlay);
 		overlayManager.remove(visualNotificationOverlay);
@@ -645,7 +645,7 @@ public class SplashHelperPlugin extends Plugin
 		{
 			WorldPoint location = tile.getWorldLocation();
 			tileManager.setBoundaryTile(location);
-			log.info("✓ Boundary tile successfully set to: {}", location);
+			log.debug("✓ Boundary tile successfully set to: {}", location);
 			notificationService.sendNotification("Boundary tile set at: " + location.getX() + ", " + location.getY());
 		}
 	}
@@ -653,7 +653,7 @@ public class SplashHelperPlugin extends Plugin
 	private void onBoundaryUnsetClick(MenuEntry entry)
 	{
 		tileManager.unsetBoundaryTile();
-		log.info("✓ Boundary tile unset");
+		log.debug("✓ Boundary tile unset");
 		notificationService.sendNotification("Boundary tile unset");
 	}
 
@@ -678,7 +678,7 @@ public class SplashHelperPlugin extends Plugin
 		{
 			WorldPoint location = tile.getWorldLocation();
 			tileManager.setKnightTile1(location);
-			log.info("✓ Knight Tile 1 successfully set to: {}", location);
+			log.debug("✓ Knight Tile 1 successfully set to: {}", location);
 			notificationService.sendNotification("Knight Tile 1 set at: " + location.getX() + ", " + location.getY());
 		}
 	}
@@ -686,7 +686,7 @@ public class SplashHelperPlugin extends Plugin
 	private void onKnightTile1UnsetClick(MenuEntry entry)
 	{
 		tileManager.unsetKnightTile1();
-		log.info("✓ Knight Tile 1 unset");
+		log.debug("✓ Knight Tile 1 unset");
 		notificationService.sendNotification("Knight Tile 1 unset");
 	}
 
@@ -709,7 +709,7 @@ public class SplashHelperPlugin extends Plugin
 		{
 			WorldPoint location = tile.getWorldLocation();
 			tileManager.setKnightTile2(location);
-			log.info("✓ Knight Tile 2 successfully set to: {}", location);
+			log.debug("✓ Knight Tile 2 successfully set to: {}", location);
 			notificationService.sendNotification("Knight Tile 2 set at: " + location.getX() + ", " + location.getY());
 		}
 	}
@@ -717,7 +717,7 @@ public class SplashHelperPlugin extends Plugin
 	private void onKnightTile2UnsetClick(MenuEntry entry)
 	{
 		tileManager.unsetKnightTile2();
-		log.info("✓ Knight Tile 2 unset");
+		log.debug("✓ Knight Tile 2 unset");
 		notificationService.sendNotification("Knight Tile 2 unset");
 	}
 
@@ -765,7 +765,7 @@ public class SplashHelperPlugin extends Plugin
 				event.getMenuAction() != MenuAction.WALK)
 			{
 				notificationService.muteNotifications();
-				log.info("Notifications muted - player interacted while knight escaped");
+				log.debug("Notifications muted - player interacted while knight escaped");
 			}
 		}
 
@@ -812,7 +812,7 @@ public class SplashHelperPlugin extends Plugin
 				{
 					// Restart timer if clicking knight during active session
 					startTimer();
-					log.info("Timer restarted by clicking knight");
+					log.debug("Timer restarted by clicking knight");
 				}
 			}
 		}
@@ -824,7 +824,7 @@ public class SplashHelperPlugin extends Plugin
 		timerEnd = Instant.now().plus(Duration.ofMinutes(durationMinutes));
 		hasNotified = false;
 		
-		log.info("Timer started for {} minutes", durationMinutes);
+		log.debug("Timer started for {} minutes", durationMinutes);
 		
 		if (config.enableWelcomeMessage())
 		{
@@ -930,7 +930,7 @@ public class SplashHelperPlugin extends Plugin
 
 		lastStatsSample = Instant.now();
 		
-		log.info("Splash session started for {} using {}", playerName, spell);
+		log.debug("Splash session started for {} using {}", playerName, spell);
 	}
 
 	
@@ -1074,7 +1074,7 @@ public class SplashHelperPlugin extends Plugin
 							// Start session when player is actually casting spells at the knight
 							tileManager.setCurrentTarget(interactingTarget);
 							startTimer();
-							log.info("Session started by detecting spell animation on {} (animation: {})", targetName, animationId);
+							log.debug("Session started by detecting spell animation on {} (animation: {})", targetName, animationId);
 						}
 					}
 				}
@@ -1137,7 +1137,7 @@ public class SplashHelperPlugin extends Plugin
 			{
 				notificationService.sendTimerNotification("Splash timer has expired!");
 				hasNotified = true;
-				log.info("Timer expired - notification sent");
+				log.debug("Timer expired - notification sent");
 			}
 		}
 	}
@@ -1230,7 +1230,7 @@ public class SplashHelperPlugin extends Plugin
 			if (timerEnd != null && timerEnd.isAfter(Instant.now()))
 			{
 				startTimer();
-				log.info("Timer restarted by allowed action: {}", option);
+				log.debug("Timer restarted by allowed action: {}", option);
 			}
 			return false;
 		}
@@ -1305,7 +1305,7 @@ public class SplashHelperPlugin extends Plugin
 	public void toggleSafetyMode()
 	{
 		safetyModeEnabled = !safetyModeEnabled;
-		log.info("Safety mode toggled: {}", safetyModeEnabled ? "ON" : "OFF");
+		log.debug("Safety mode toggled: {}", safetyModeEnabled ? "ON" : "OFF");
 		
 		// Send notification to user (must be on client thread)
 		String message = safetyModeEnabled ? 

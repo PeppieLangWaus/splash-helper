@@ -94,7 +94,7 @@ public class SessionManager
 		currentSession.setStartingRuneCount(runeCalculator.getRemainingCasts(spell));
 		currentSession.setCurrentRuneCount(currentSession.getStartingRuneCount());
 
-		log.info("Started splash session for {} with spell {}", playerName,
+		log.debug("Started splash session for {} with spell {}", playerName,
 			spell != null ? spell.getName() : "unknown");
 	}
 
@@ -117,7 +117,7 @@ public class SessionManager
 			// Persist session history to storage
 			saveSessionHistory();
 			
-			log.info("Finalized session: {} casts, {} XP gained, {} gp cost",
+			log.debug("Finalized session: {} casts, {} XP gained, {} gp cost",
 				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
 		}
 		currentSession = null;
@@ -145,7 +145,7 @@ public class SessionManager
 		int ticksSinceLastCast = currentTick - lastCastTick;
 		if (ticksSinceLastCast >= Constants.SESSION_TIMEOUT_TICKS)
 		{
-			log.info("Session timeout - no cast in {} ticks", ticksSinceLastCast);
+			log.debug("Session timeout - no cast in {} ticks", ticksSinceLastCast);
 			finalizeSession();
 			return true;
 		}
@@ -412,7 +412,7 @@ public class SessionManager
 	{
 		sessionHistory.clear();
 		configManager.unsetConfiguration("splashhelper", SESSION_HISTORY_KEY);
-		log.info("Cleared persisted session history");
+		log.debug("Cleared persisted session history");
 	}
 
 	/**
@@ -423,7 +423,7 @@ public class SessionManager
 		if (session != null && sessionHistory.remove(session))
 		{
 			saveSessionHistory();
-			log.info("Deleted session from history: {}", session.getPlayerName());
+			log.debug("Deleted session from history: {}", session.getPlayerName());
 		}
 	}
 

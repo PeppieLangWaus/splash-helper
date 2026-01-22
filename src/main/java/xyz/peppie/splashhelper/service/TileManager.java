@@ -57,7 +57,7 @@ public class TileManager
 	{
 		this.boundaryTile = tile;
 		boundaryNotified = false;
-		log.info("✓ Boundary tile successfully set to: {}", tile);
+		log.debug("✓ Boundary tile successfully set to: {}", tile);
 	}
 
 	/**
@@ -67,7 +67,7 @@ public class TileManager
 	{
 		boundaryTile = null;
 		boundaryNotified = false;
-		log.info("✓ Boundary tile unset");
+		log.debug("✓ Boundary tile unset");
 	}
 
 	/**
@@ -76,7 +76,7 @@ public class TileManager
 	public void setKnightTile1(WorldPoint tile)
 	{
 		this.knightTile1 = tile;
-		log.info("✓ Knight Tile 1 successfully set to: {}", tile);
+		log.debug("✓ Knight Tile 1 successfully set to: {}", tile);
 		
 		// Initialize tracking if both tiles are set
 		if (knightTile1 != null && knightTile2 != null)
@@ -92,7 +92,7 @@ public class TileManager
 	{
 		knightTile1 = null;
 		resetMovementTracking();
-		log.info("✓ Knight Tile 1 unset");
+		log.debug("✓ Knight Tile 1 unset");
 	}
 
 	/**
@@ -101,7 +101,7 @@ public class TileManager
 	public void setKnightTile2(WorldPoint tile)
 	{
 		this.knightTile2 = tile;
-		log.info("✓ Knight Tile 2 successfully set to: {}", tile);
+		log.debug("✓ Knight Tile 2 successfully set to: {}", tile);
 		
 		// Initialize tracking if both tiles are set
 		if (knightTile1 != null && knightTile2 != null)
@@ -117,7 +117,7 @@ public class TileManager
 	{
 		knightTile2 = null;
 		resetMovementTracking();
-		log.info("✓ Knight Tile 2 unset");
+		log.debug("✓ Knight Tile 2 unset");
 	}
 
 	/**
