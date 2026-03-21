@@ -2,16 +2,17 @@ package xyz.peppie.splashhelper.ui;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Dimension;
+import java.awt.Cursor;
 import java.awt.GridLayout;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
-import javax.swing.JButton;
+import javax.swing.ImageIcon;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -142,6 +143,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     private void buildPanels()
     {
+        // Action bar with export buttons at top
+        layoutPanel.add(buildActionBar());
+        layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+
         // Only add panels if they are enabled in config
         if (config.showOverallStats())
         {
@@ -161,6 +166,97 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         }
     }
 
+    private JPanel buildActionBar()
+    {
+        JPanel actionBar = new JPanel(new BorderLayout());
+        actionBar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        actionBar.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
+
+        JPanel titlePanel = new JPanel(new BorderLayout());
+        titlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        titlePanel.setBorder(new EmptyBorder(5, 10, 5, 10));
+
+        JLabel titleLabel = new JLabel("Splash Statistics");
+        titleLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+        titleLabel.setFont(FontManager.getRunescapeBoldFont());
+        titlePanel.add(titleLabel, BorderLayout.WEST);
+
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
+
+        // Clipboard icon button
+        JLabel copyButton = createIconButton(createClipboardIcon(), "Copy session data to clipboard as JSON");
+        copyButton.addMouseListener(new java.awt.event.MouseAdapter()
+        {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e)
+            {
+                copySessionsToClipboard();
+            }
+        });
+        buttonPanel.add(copyButton);
+
+        buttonPanel.add(javax.swing.Box.createHorizontalStrut(8));
+
+        // Download icon button
+        JLabel exportButton = createIconButton(createDownloadIcon(), "Export session data to a JSON file");
+        exportButton.addMouseListener(new java.awt.event.MouseAdapter()
+        {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e)
+            {
+                exportSessionsToFile();
+            }
+        });
+        buttonPanel.add(exportButton);
+
+        titlePanel.add(buttonPanel, BorderLayout.EAST);
+        actionBar.add(titlePanel, BorderLayout.CENTER);
+        return actionBar;
+    }
+
+    private JLabel createIconButton(ImageIcon icon, String tooltip)
+    {
+        JLabel label = new JLabel(icon);
+        label.setToolTipText(tooltip);
+        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return label;
+    }
+
+    private ImageIcon createClipboardIcon()
+    {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(ColorScheme.LIGHT_GRAY_COLOR);
+        // Clipboard outline
+        g.drawRoundRect(3, 2, 10, 12, 2, 2);
+        // Clip at top
+        g.fillRoundRect(5, 0, 6, 4, 2, 2);
+        // Lines on clipboard
+        g.drawLine(5, 7, 11, 7);
+        g.drawLine(5, 10, 11, 10);
+        g.dispose();
+        return new ImageIcon(img);
+    }
+
+    private ImageIcon createDownloadIcon()
+    {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(ColorScheme.LIGHT_GRAY_COLOR);
+        // Down arrow shaft
+        g.fillRect(6, 1, 4, 8);
+        // Arrow head
+        g.fillPolygon(new int[]{3, 8, 13}, new int[]{8, 13, 8}, 3);
+        // Base line (tray)
+        g.fillRect(2, 14, 12, 2);
+        g.dispose();
+        return new ImageIcon(img);
+    }
+
     private JPanel buildOverallPanel()
     {
         JPanel overallContainer = new JPanel();
@@ -175,29 +271,6 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         overallTitle.setForeground(Color.CYAN);
         overallTitle.setFont(FontManager.getRunescapeBoldFont());
         overallTitlePanel.add(overallTitle, BorderLayout.WEST);
-
-        // Export buttons
-        JPanel exportButtonPanel = new JPanel();
-        exportButtonPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
-        exportButtonPanel.setLayout(new BoxLayout(exportButtonPanel, BoxLayout.X_AXIS));
-
-        JButton copyButton = new JButton("Copy");
-        copyButton.setFont(FontManager.getRunescapeSmallFont());
-        copyButton.setPreferredSize(new Dimension(50, 20));
-        copyButton.setToolTipText("Copy session data to clipboard as JSON");
-        copyButton.addActionListener(e -> copySessionsToClipboard());
-        exportButtonPanel.add(copyButton);
-
-        exportButtonPanel.add(javax.swing.Box.createHorizontalStrut(4));
-
-        JButton exportButton = new JButton("Export");
-        exportButton.setFont(FontManager.getRunescapeSmallFont());
-        exportButton.setPreferredSize(new Dimension(58, 20));
-        exportButton.setToolTipText("Export session data to a JSON file");
-        exportButton.addActionListener(e -> exportSessionsToFile());
-        exportButtonPanel.add(exportButton);
-
-        overallTitlePanel.add(exportButtonPanel, BorderLayout.EAST);
         overallContainer.add(overallTitlePanel);
 
         overallPanel.setLayout(new GridLayout(0, 1, 0, 4));
