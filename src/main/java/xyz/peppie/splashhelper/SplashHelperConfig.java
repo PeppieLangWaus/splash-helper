@@ -225,6 +225,18 @@ public interface SplashHelperConfig extends Config
 		return 5;
 	}
 
+	@Range(min = 0, max = 600)
+	@ConfigItem(
+		keyName = "minimumSessionDuration",
+		name = "Min Session Duration (seconds)",
+		description = "Sessions shorter than this duration will be discarded",
+		section = statisticsSection
+	)
+	default int minimumSessionDuration()
+	{
+		return 60;
+	}
+
 	@ConfigItem(
 		keyName = "enableGriefPrevention",
 		name = "Enable Grief Prevention",

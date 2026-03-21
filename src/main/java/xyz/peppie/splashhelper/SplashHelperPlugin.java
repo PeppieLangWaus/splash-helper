@@ -213,7 +213,7 @@ public class SplashHelperPlugin extends Plugin
 		if (config != null)
 		{
 			showVisualNotification = true;
-			visualNotificationEnd = Instant.now().plusSeconds(config.notificationDuration());
+			// No duration timeout - notification persists until user interaction resets the timer
 		}
 	}
 
@@ -237,7 +237,6 @@ public class SplashHelperPlugin extends Plugin
 	// Visual notification state
 	@Getter
 	private boolean showVisualNotification = false;
-	private Instant visualNotificationEnd = null;
 
 	@Provides
 	SplashHelperConfig provideConfig(ConfigManager configManager)
@@ -308,7 +307,6 @@ public class SplashHelperPlugin extends Plugin
 		lastStatsSample = null;
 		playerTracker.reset();
 		showVisualNotification = false;
-		visualNotificationEnd = null;
 	}
 
 	@Subscribe
@@ -464,6 +462,7 @@ public class SplashHelperPlugin extends Plugin
 			tileManager.setCurrentTarget(null);
 			timerEnd = null;
 			hasNotified = false;
+			sessionManager.finalizeSession();
 		}
 	}
 
@@ -748,6 +747,9 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
+		// Any client interaction dismisses the visual notification
+		showVisualNotification = false;
+
 		// Safety mode action filtering
 		if (safetyModeEnabled && shouldBlockAction(event))
 		{
@@ -806,14 +808,9 @@ public class SplashHelperPlugin extends Plugin
 					return;
 				}
 
-				// Only restart timer if session is already active
-				// Session start is handled by onInteractingChanged
-				if (timerEnd != null && timerEnd.isAfter(Instant.now()))
-				{
-					// Restart timer if clicking knight during active session
-					startTimer();
-					log.debug("Timer restarted by clicking knight");
-				}
+				// Restart timer on user click (works even after timer has expired)
+				startTimer();
+				log.debug("Timer restarted by clicking knight");
 			}
 		}
 	}
@@ -823,6 +820,7 @@ public class SplashHelperPlugin extends Plugin
 		int durationMinutes = config.timerDuration();
 		timerEnd = Instant.now().plus(Duration.ofMinutes(durationMinutes));
 		hasNotified = false;
+		showVisualNotification = false;
 		
 		log.debug("Timer started for {} minutes", durationMinutes);
 		
@@ -1068,13 +1066,19 @@ public class SplashHelperPlugin extends Plugin
 					if (configuredNpc != null && !configuredNpc.isEmpty() &&
 						targetName != null && targetName.equalsIgnoreCase(configuredNpc))
 					{
-						// Check if we already have an active session
-						if (timerEnd == null || timerEnd.isBefore(Instant.now()))
+						// Start timer if not already running (first interaction only, not after expiry)
+						if (timerEnd == null && !hasNotified)
 						{
-							// Start session when player is actually casting spells at the knight
 							tileManager.setCurrentTarget(interactingTarget);
 							startTimer();
-							log.debug("Session started by detecting spell animation on {} (animation: {})", targetName, animationId);
+							log.debug("Timer and session started by detecting spell animation on {} (animation: {})", targetName, animationId);
+						}
+						// Start a new session if previous one timed out but timer is still running
+						else if (!sessionManager.hasActiveSession() && config.enableStatistics())
+						{
+							tileManager.setCurrentTarget(interactingTarget);
+							startSession(config.selectedSpell());
+							log.debug("New session started (timer still active) for {} (animation: {})", targetName, animationId);
 						}
 					}
 				}
@@ -1115,14 +1119,8 @@ public class SplashHelperPlugin extends Plugin
 	 */
 	private void updateVisualNotificationState()
 	{
-		if (showVisualNotification && visualNotificationEnd != null)
-		{
-			if (Instant.now().isAfter(visualNotificationEnd))
-			{
-				showVisualNotification = false;
-				visualNotificationEnd = null;
-			}
-		}
+		// Visual notification is cleared when the user interacts (startTimer resets it)
+		// No duration-based timeout needed
 	}
 
 	/**
@@ -1137,7 +1135,8 @@ public class SplashHelperPlugin extends Plugin
 			{
 				notificationService.sendTimerNotification("Splash timer has expired!");
 				hasNotified = true;
-				log.debug("Timer expired - notification sent");
+				timerEnd = null;
+				log.debug("Timer expired - notification sent, timer cleared");
 			}
 		}
 	}
@@ -1193,14 +1192,10 @@ public class SplashHelperPlugin extends Plugin
 					cachedRuneCost = currentSession.getRuneCostGp();
 				}
 				
-				// Check for session timeout via service
-				if (sessionManager.checkSessionTimeout())
-				{
-					// Reset timer when session goes idle
-					timerEnd = null;
-					hasNotified = false;
-				}
-				else if (lastStatsSample == null || 
+				// Check for session timeout via service (session is independent of timer)
+				sessionManager.checkSessionTimeout();
+				
+				if (lastStatsSample == null || 
 					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())
 				{
 					sampleSessionStatistics();
@@ -1226,12 +1221,9 @@ public class SplashHelperPlugin extends Plugin
 		// Allowed actions that reset timer - return false (not blocked)
 		if (isAllowedAction(event))
 		{
-			// Reset splash timer for allowed actions
-			if (timerEnd != null && timerEnd.isAfter(Instant.now()))
-			{
-				startTimer();
-				log.debug("Timer restarted by allowed action: {}", option);
-			}
+			// Reset splash timer for allowed actions (works even after timer has expired)
+			startTimer();
+			log.debug("Timer restarted by allowed action: {}", option);
 			return false;
 		}
 		

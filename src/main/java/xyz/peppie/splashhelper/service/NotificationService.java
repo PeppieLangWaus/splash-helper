@@ -142,22 +142,22 @@ public class NotificationService
 		}
 		else
 		{
-			// Send system notification with auto-dismiss enabled
+			// Send system notification with tray and native sound
 			Notification notification = new Notification(
-				true,
-				true,
-				true,  // Enable auto-dismiss
-				false,
+				true,     // enabled
+				true,     // initialized
+				true,     // override
+				true,     // tray (Windows toast)
 				TrayIcon.MessageType.WARNING,
-				RequestFocusType.OFF,
-				NotificationSound.CUSTOM,
-				null,
-				client.getMusicVolume(),
-				1,
-				true,
+				RequestFocusType.FORCE,
+				NotificationSound.NATIVE,
+				null,     // soundName (not needed for NATIVE)
+				100,      // volume
+				5,        // timeout (seconds)
+				true,     // gameMessage
 				FlashNotification.DISABLED,
 				Color.GREEN,
-				false
+				false     // sendWhenFocused
 			);
 			notifier.notify(notification, message);
 		}

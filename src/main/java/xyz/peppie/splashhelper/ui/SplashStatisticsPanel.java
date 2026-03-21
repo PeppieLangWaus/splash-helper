@@ -2,15 +2,24 @@ package xyz.peppie.splashhelper.ui;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.game.ItemManager;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.OverallStatField;
@@ -23,6 +32,7 @@ import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.components.PluginErrorPanel;
 import xyz.peppie.splashhelper.service.SessionManager;
 
+@Slf4j
 public class SplashStatisticsPanel extends PluginPanel implements SplashSessionHistoryBox.SessionDeleteListener
 {
     private final SplashHelperPlugin plugin;
@@ -165,6 +175,29 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         overallTitle.setForeground(Color.CYAN);
         overallTitle.setFont(FontManager.getRunescapeBoldFont());
         overallTitlePanel.add(overallTitle, BorderLayout.WEST);
+
+        // Export buttons
+        JPanel exportButtonPanel = new JPanel();
+        exportButtonPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        exportButtonPanel.setLayout(new BoxLayout(exportButtonPanel, BoxLayout.X_AXIS));
+
+        JButton copyButton = new JButton("Copy");
+        copyButton.setFont(FontManager.getRunescapeSmallFont());
+        copyButton.setPreferredSize(new Dimension(50, 20));
+        copyButton.setToolTipText("Copy session data to clipboard as JSON");
+        copyButton.addActionListener(e -> copySessionsToClipboard());
+        exportButtonPanel.add(copyButton);
+
+        exportButtonPanel.add(javax.swing.Box.createHorizontalStrut(4));
+
+        JButton exportButton = new JButton("Export");
+        exportButton.setFont(FontManager.getRunescapeSmallFont());
+        exportButton.setPreferredSize(new Dimension(58, 20));
+        exportButton.setToolTipText("Export session data to a JSON file");
+        exportButton.addActionListener(e -> exportSessionsToFile());
+        exportButtonPanel.add(exportButton);
+
+        overallTitlePanel.add(exportButtonPanel, BorderLayout.EAST);
         overallContainer.add(overallTitlePanel);
 
         overallPanel.setLayout(new GridLayout(0, 1, 0, 4));
@@ -565,6 +598,50 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             return String.format("%.1fK", number / 1000.0);
         }
         return String.valueOf(number);
+    }
+
+    private void copySessionsToClipboard()
+    {
+        try
+        {
+            String json = sessionManager.exportSessionsAsJson();
+            StringSelection selection = new StringSelection(json);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            JOptionPane.showMessageDialog(this, "Session data copied to clipboard!", "Export", JOptionPane.INFORMATION_MESSAGE);
+        }
+        catch (Exception ex)
+        {
+            log.error("Failed to copy sessions to clipboard", ex);
+            JOptionPane.showMessageDialog(this, "Failed to copy: " + ex.getMessage(), "Export Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exportSessionsToFile()
+    {
+        try
+        {
+            JFileChooser fileChooser = new JFileChooser();
+            fileChooser.setDialogTitle("Export Splash Statistics");
+            fileChooser.setFileFilter(new FileNameExtensionFilter("JSON Files (*.json)", "json"));
+            fileChooser.setSelectedFile(new File("splash-statistics.json"));
+
+            int result = fileChooser.showSaveDialog(this);
+            if (result == JFileChooser.APPROVE_OPTION)
+            {
+                File file = fileChooser.getSelectedFile();
+                if (!file.getName().endsWith(".json"))
+                {
+                    file = new File(file.getAbsolutePath() + ".json");
+                }
+                sessionManager.exportSessionsToFile(file);
+                JOptionPane.showMessageDialog(this, "Sessions exported to:\n" + file.getAbsolutePath(), "Export", JOptionPane.INFORMATION_MESSAGE);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.error("Failed to export sessions to file", ex);
+            JOptionPane.showMessageDialog(this, "Failed to export: " + ex.getMessage(), "Export Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     @Override

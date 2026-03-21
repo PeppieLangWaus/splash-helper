@@ -35,8 +35,8 @@ public class SplashSessionHistoryBox extends JPanel
 		void onSessionDeleted(SplashSessionHistoryBox box);
 	}
 
-	private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("EEE");
-	private static final DateTimeFormatter FULL_FORMAT = DateTimeFormatter.ofPattern("EEE HH:mm");
+	private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("dd MMM");
+	private static final DateTimeFormatter FULL_FORMAT = DateTimeFormatter.ofPattern("dd MMM HH:mm");
 
 	private final SplashSession session;
 	private final SplashHelperConfig config;

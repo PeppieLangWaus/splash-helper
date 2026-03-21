@@ -108,17 +108,27 @@ public class SessionManager
 		{
 			currentSession.setEndTime(Instant.now());
 			
-			// Finalize derived statistics for persistence
-			finalizeDerivedStatistics(currentSession);
+			long durationSeconds = currentSession.getSessionDurationSeconds();
+			int minimumDuration = config.minimumSessionDuration();
 			
-			sessionHistory.add(currentSession);
-			lastFinalizedSession = currentSession;
-			
-			// Persist session history to storage
-			saveSessionHistory();
-			
-			log.debug("Finalized session: {} casts, {} XP gained, {} gp cost",
-				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
+			if (durationSeconds < minimumDuration)
+			{
+				log.debug("Discarding short session: {}s < {}s minimum", durationSeconds, minimumDuration);
+			}
+			else
+			{
+				// Finalize derived statistics for persistence
+				finalizeDerivedStatistics(currentSession);
+				
+				sessionHistory.add(currentSession);
+				lastFinalizedSession = currentSession;
+				
+				// Persist session history to storage
+				saveSessionHistory();
+				
+				log.debug("Finalized session: {} casts, {} XP gained, {} gp cost",
+					currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
+			}
 		}
 		currentSession = null;
 		lastMagicXp = -1;
@@ -425,6 +435,42 @@ public class SessionManager
 			saveSessionHistory();
 			log.debug("Deleted session from history: {}", session.getPlayerName());
 		}
+	}
+
+	/**
+	 * Export all session history as a JSON string for REST API upload.
+	 * @return JSON string of all persisted sessions
+	 */
+	public String exportSessionsAsJson()
+	{
+		List<PersistedSession> persistedSessions = new ArrayList<>();
+		for (SplashSession session : sessionHistory)
+		{
+			persistedSessions.add(PersistedSession.fromSession(session));
+		}
+
+		// Include active session if present
+		if (currentSession != null && currentSession.isActive())
+		{
+			persistedSessions.add(PersistedSession.fromSession(currentSession));
+		}
+
+		return gson.toJson(persistedSessions);
+	}
+
+	/**
+	 * Export all session history to a file.
+	 * @param file The file to write to
+	 * @throws java.io.IOException if writing fails
+	 */
+	public void exportSessionsToFile(java.io.File file) throws java.io.IOException
+	{
+		String json = exportSessionsAsJson();
+		try (java.io.FileWriter writer = new java.io.FileWriter(file))
+		{
+			writer.write(json);
+		}
+		log.debug("Exported {} sessions to {}", sessionHistory.size(), file.getAbsolutePath());
 	}
 
 	/**
