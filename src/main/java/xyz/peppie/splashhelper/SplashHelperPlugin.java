@@ -265,6 +265,9 @@ public class SplashHelperPlugin extends Plugin
 		// Load safety mode state from config
 		safetyModeEnabled = config.safetyModeEnabled();
 
+		// Load persisted boundary/knight tiles
+		tileManager.loadPersistedTiles();
+
 		// Create statistics panel
 		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager);
 		

@@ -5,6 +5,7 @@ import com.google.inject.Singleton;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.client.config.ConfigManager;
 import xyz.peppie.splashhelper.SplashHelperConfig;
 import net.runelite.api.coords.WorldPoint;
 
@@ -17,8 +18,16 @@ import java.time.Instant;
 @Singleton
 public class TileManager
 {
+	private static final String CONFIG_GROUP = "splashhelper";
+	private static final String CONFIG_BOUNDARY_TILE = "boundaryTile";
+	private static final String CONFIG_KNIGHT_TILE1 = "knightTile1";
+	private static final String CONFIG_KNIGHT_TILE2 = "knightTile2";
+
 	@Inject
 	private SplashHelperConfig config;
+
+	@Inject
+	private ConfigManager configManager;
 
 	@Inject
 	private SessionManager sessionManager;
@@ -57,6 +66,7 @@ public class TileManager
 	{
 		this.boundaryTile = tile;
 		boundaryNotified = false;
+		saveTile(CONFIG_BOUNDARY_TILE, tile);
 		log.debug("✓ Boundary tile successfully set to: {}", tile);
 	}
 
@@ -67,6 +77,7 @@ public class TileManager
 	{
 		boundaryTile = null;
 		boundaryNotified = false;
+		saveTile(CONFIG_BOUNDARY_TILE, null);
 		log.debug("✓ Boundary tile unset");
 	}
 
@@ -76,6 +87,7 @@ public class TileManager
 	public void setKnightTile1(WorldPoint tile)
 	{
 		this.knightTile1 = tile;
+		saveTile(CONFIG_KNIGHT_TILE1, tile);
 		log.debug("✓ Knight Tile 1 successfully set to: {}", tile);
 		
 		// Initialize tracking if both tiles are set
@@ -91,6 +103,7 @@ public class TileManager
 	public void unsetKnightTile1()
 	{
 		knightTile1 = null;
+		saveTile(CONFIG_KNIGHT_TILE1, null);
 		resetMovementTracking();
 		log.debug("✓ Knight Tile 1 unset");
 	}
@@ -101,6 +114,7 @@ public class TileManager
 	public void setKnightTile2(WorldPoint tile)
 	{
 		this.knightTile2 = tile;
+		saveTile(CONFIG_KNIGHT_TILE2, tile);
 		log.debug("✓ Knight Tile 2 successfully set to: {}", tile);
 		
 		// Initialize tracking if both tiles are set
@@ -116,6 +130,7 @@ public class TileManager
 	public void unsetKnightTile2()
 	{
 		knightTile2 = null;
+		saveTile(CONFIG_KNIGHT_TILE2, null);
 		resetMovementTracking();
 		log.debug("✓ Knight Tile 2 unset");
 	}
@@ -282,9 +297,7 @@ public class TileManager
 	 */
 	public void reset()
 	{
-		boundaryTile = null;
-		knightTile1 = null;
-		knightTile2 = null;
+		// Keep persisted tiles (boundaryTile, knightTile1, knightTile2) — they are restored on startup
 		currentTarget = null;
 		boundaryNotified = false;
 		lastNpcPosition = null;
@@ -293,5 +306,48 @@ public class TileManager
 		movementsPerMinute = 0.0;
 		hasEscaped = false;
 		boundaryTickCounter = 0;
+	}
+
+	/**
+	 * Load persisted tiles from config. Called on plugin startup.
+	 */
+	public void loadPersistedTiles()
+	{
+		boundaryTile = loadTile(CONFIG_BOUNDARY_TILE);
+		knightTile1 = loadTile(CONFIG_KNIGHT_TILE1);
+		knightTile2 = loadTile(CONFIG_KNIGHT_TILE2);
+		log.debug("Loaded persisted tiles - boundary: {}, knight1: {}, knight2: {}", boundaryTile, knightTile1, knightTile2);
+	}
+
+	private void saveTile(String key, WorldPoint tile)
+	{
+		if (tile == null)
+		{
+			configManager.unsetConfiguration(CONFIG_GROUP, key);
+		}
+		else
+		{
+			String value = tile.getX() + "," + tile.getY() + "," + tile.getPlane();
+			configManager.setConfiguration(CONFIG_GROUP, key, value);
+		}
+	}
+
+	private WorldPoint loadTile(String key)
+	{
+		String value = configManager.getConfiguration(CONFIG_GROUP, key);
+		if (value == null || value.isEmpty())
+		{
+			return null;
+		}
+		try
+		{
+			String[] parts = value.split(",");
+			return new WorldPoint(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+		}
+		catch (Exception e)
+		{
+			log.warn("Failed to parse persisted tile '{}': {}", key, e.getMessage());
+			return null;
+		}
 	}
 }
