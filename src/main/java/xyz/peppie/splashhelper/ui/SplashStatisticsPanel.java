@@ -22,6 +22,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.callback.ClientThread;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.OverallStatField;
 import xyz.peppie.splashhelper.model.SessionStatField;
@@ -40,6 +41,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final SplashHelperConfig config;
     private final ItemManager itemManager;
     private final SessionManager sessionManager;
+    private final ClientThread clientThread;
 
     // Main layout container
     private final JPanel layoutPanel = new JPanel();
@@ -82,13 +84,14 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
     private int lastHistorySize = 0;
 
-    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager)
+    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, ClientThread clientThread)
     {
         super(true);
         this.plugin = plugin;
         this.config = config;
         this.itemManager = itemManager;
         this.sessionManager = sessionManager;
+        this.clientThread = clientThread;
 
         setBorder(new EmptyBorder(6, 6, 6, 6));
         setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -528,10 +531,14 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             overallHighestPlayerCountLabel.setText(String.valueOf(highestPlayers));
             overallHighestPlayerCountLabel.setForeground(Color.CYAN);
 
-            // Update current player count
-            int currentPlayerCount = plugin.countNearbyPlayers(config.playerCountRadius());
-            overallPlayerCountLabel.setText(String.valueOf(currentPlayerCount));
-            overallPlayerCountLabel.setForeground(Color.CYAN);
+            // Update current player count (must be called on client thread)
+            clientThread.invoke(() -> {
+                int currentPlayerCount = plugin.countNearbyPlayers(config.playerCountRadius());
+                SwingUtilities.invokeLater(() -> {
+                    overallPlayerCountLabel.setText(String.valueOf(currentPlayerCount));
+                    overallPlayerCountLabel.setForeground(Color.CYAN);
+                });
+            });
 
             // Update status
             if (hasActiveSession)

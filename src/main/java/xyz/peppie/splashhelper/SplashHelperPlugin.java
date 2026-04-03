@@ -269,7 +269,7 @@ public class SplashHelperPlugin extends Plugin
 		tileManager.loadPersistedTiles();
 
 		// Create statistics panel
-		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager);
+		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager, clientThread);
 		
 		final BufferedImage icon = ImageUtil.loadImageResource(SplashHelperPlugin.class, "icon.png");
 		
