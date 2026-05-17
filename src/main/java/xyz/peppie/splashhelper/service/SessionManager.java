@@ -54,6 +54,26 @@ public class SessionManager
 
 	private static final String SESSION_HISTORY_KEY = "splashhelper_session_history";
 
+	/** A recently finalized session that can be resumed if the same player returns quickly. */
+	private SplashSession resumableSession = null;
+	private long resumableSessionExpiryMs = 0;
+
+	/** Called after a new session is successfully started. */
+	private Runnable sessionStartedCallback;
+
+	/** Called with the finalized session when a session passes minimum duration and is saved. */
+	private java.util.function.Consumer<SplashSession> sessionFinalizedCallback;
+
+	public void setSessionStartedCallback(Runnable callback)
+	{
+		this.sessionStartedCallback = callback;
+	}
+
+	public void setSessionFinalizedCallback(java.util.function.Consumer<SplashSession> callback)
+	{
+		this.sessionFinalizedCallback = callback;
+	}
+
 	@Inject
 	public SessionManager(Client client, RuneCalculator runeCalculator, ItemManager itemManager, ConfigManager configManager, SplashHelperConfig config, Gson gson)
 	{
@@ -73,11 +93,24 @@ public class SessionManager
 	}
 
 	/**
-	 * Start a new splash session.
+	 * Start a new splash session, or resume the last one if the same player returns
+	 * within the configured session resume window.
 	 */
 	public void startSession(String playerName, SplashSpell spell, Instant logoutTime,
 							 int world, boolean stickyKnight)
 	{
+		// Resume the last session if the same player returns within the resume window
+		long resumeWindowMs = (long) config.sessionResumeWindowSeconds() * 1000;
+		if (resumeWindowMs > 0
+			&& resumableSession != null
+			&& System.currentTimeMillis() < resumableSessionExpiryMs
+			&& playerName != null
+			&& playerName.equalsIgnoreCase(resumableSession.getPlayerName()))
+		{
+			resumeSession(resumableSession, logoutTime, world);
+			return;
+		}
+		resumableSession = null;
 		int startXp = client.getSkillExperience(Skill.MAGIC);
 		lastMagicXp = startXp;
 		lastCastTick = client.getTickCount();
@@ -96,6 +129,38 @@ public class SessionManager
 
 		log.debug("Started splash session for {} with spell {}", playerName,
 			spell != null ? spell.getName() : "unknown");
+
+		if (sessionStartedCallback != null)
+		{
+			sessionStartedCallback.run();
+		}
+	}
+
+	/**
+	 * Resume a previously finalized session, updating the retirement timer and world.
+	 */
+	private void resumeSession(SplashSession session, Instant newLogoutTime, int newWorld)
+	{
+		// The session may have already been persisted to history when it was finalized.
+		// Remove it now so it is not duplicated when it is finalized again after resuming.
+		if (sessionHistory.remove(session))
+		{
+			saveSessionHistory();
+		}
+		session.resume();
+		session.setLogoutTime(newLogoutTime);
+		session.setWorld(newWorld);
+		currentSession = session;
+		resumableSession = null;
+		resumableSessionExpiryMs = 0;
+		// Re-sync XP baseline so no spurious cast is counted for the gap
+		lastMagicXp = client.getSkillExperience(Skill.MAGIC);
+		lastCastTick = client.getTickCount();
+		log.debug("Resumed splash session for {} (interrupted briefly)", session.getPlayerName());
+		if (sessionStartedCallback != null)
+		{
+			sessionStartedCallback.run(); // re-sends SESSION_START to server
+		}
 	}
 
 	/**
@@ -104,35 +169,64 @@ public class SessionManager
 	 */
 	public void finalizeSession()
 	{
-		if (currentSession != null && currentSession.isActive())
+		if (currentSession == null || !currentSession.isActive())
 		{
-			currentSession.setEndTime(Instant.now());
-			
-			long durationSeconds = currentSession.getSessionDurationSeconds();
-			int minimumDuration = config.minimumSessionDuration();
-			
-			if (durationSeconds < minimumDuration)
-			{
-				log.debug("Discarding short session: {}s < {}s minimum", durationSeconds, minimumDuration);
-			}
-			else
-			{
-				// Finalize derived statistics for persistence
-				finalizeDerivedStatistics(currentSession);
-				
-				sessionHistory.add(currentSession);
-				lastFinalizedSession = currentSession;
-				
-				// Persist session history to storage
-				saveSessionHistory();
-				
-				log.debug("Finalized session: {} casts, {} XP gained, {} gp cost",
-					currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
-			}
+			return;
 		}
+
+		currentSession.setEndTime(Instant.now());
+
+		// Always capture the session so the backend can be notified, even if we
+		// discard it locally for being below the minimum duration threshold.
+		SplashSession toNotify = currentSession;
+		SplashSession finalized = null;
+
+		long durationSeconds = currentSession.getSessionDurationSeconds();
+		int minimumDuration = config.minimumSessionDuration();
+
+		if (durationSeconds < minimumDuration)
+		{
+			log.debug("Discarding short session locally: {}s < {}s minimum", durationSeconds, minimumDuration);
+		}
+		else
+		{
+			// Finalize derived statistics for persistence
+			finalizeDerivedStatistics(currentSession);
+
+			sessionHistory.add(currentSession);
+			lastFinalizedSession = currentSession;
+			finalized = currentSession;
+
+			// Persist session history to storage
+			saveSessionHistory();
+
+			log.debug("Finalized session: {} casts, {} XP gained, {} gp cost",
+				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
+		}
+
+		// Mark as resumable so the player can resume quickly after spear use or world hop
+		long resumeWindowMs = (long) config.sessionResumeWindowSeconds() * 1000;
+		if (resumeWindowMs > 0)
+		{
+			resumableSession = toNotify;
+			resumableSessionExpiryMs = System.currentTimeMillis() + resumeWindowMs;
+		}
+		else
+		{
+			resumableSession = null;
+			resumableSessionExpiryMs = 0;
+		}
+
 		currentSession = null;
 		lastMagicXp = -1;
 		lastCastTick = -1;
+
+		// Always notify the backend the session ended, regardless of whether it was
+		// persisted locally. The backend must remove it from the active splashers list.
+		if (sessionFinalizedCallback != null)
+		{
+			sessionFinalizedCallback.accept(toNotify);
+		}
 	}
 
 	/**
@@ -291,8 +385,19 @@ public class SessionManager
 	{
 		if (currentSession != null)
 		{
-			currentSession.addPlayerCountSample(count, config.maxPlayerCountSamples());
+			currentSession.addPlayerCountSample(count);
 		}
+	}
+
+	/**
+	 * Clear the resumable session without fully resetting.
+	 * Called on plugin shutdown to prevent disable/enable cycles from resuming
+	 * an already-finalized session (which would create duplicate history entries).
+	 */
+	public void clearResumableSession()
+	{
+		resumableSession = null;
+		resumableSessionExpiryMs = 0;
 	}
 
 	/**
@@ -305,6 +410,8 @@ public class SessionManager
 			finalizeSession();
 		}
 		currentSession = null;
+		resumableSession = null;
+		resumableSessionExpiryMs = 0;
 		sessionHistory.clear();
 		lastMagicXp = -1;
 		lastCastTick = -1;

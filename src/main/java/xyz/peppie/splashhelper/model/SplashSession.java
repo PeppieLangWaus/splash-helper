@@ -18,8 +18,10 @@ public class SplashSession
 	private SplashSpell spell;
 	private int runeCostPerCast;
 	private final Instant startTime;
-	private final Instant logoutTime;
-	private final int world;
+	@Setter
+	private Instant logoutTime;
+	@Setter
+	private int world;
 	private final boolean stickyKnight;
 
 	// Dynamic fields (updated during session)
@@ -36,7 +38,9 @@ public class SplashSession
 
 	// Player tracking (transient - not persisted)
 	private transient final Set<String> pickpocketers = new HashSet<>();
-	private transient final List<Integer> playerCountSamples = new ArrayList<>();
+	// Running mean for player count: O(1) memory, exact average over any session length.
+	private transient long playerCountSum = 0;
+	private transient long playerCountSampleN = 0;
 	@Setter
 	private int highestPlayerCount = 0;
 	
@@ -120,22 +124,15 @@ public class SplashSession
 		return pickpocketerCount;
 	}
 
-	public void addPlayerCountSample(int count, int maxSamples)
+	public void addPlayerCountSample(int count)
 	{
-		playerCountSamples.add(count);
+		playerCountSampleN++;
+		playerCountSum += count;
 		if (count > highestPlayerCount)
 		{
 			highestPlayerCount = count;
 		}
-		
-		// Enforce maximum sample limit to prevent memory issues
-		while (playerCountSamples.size() > maxSamples)
-		{
-			playerCountSamples.remove(0); // Remove oldest sample
-		}
-		
-		// Update average for persistence
-		averagePlayerCount = (int) Math.round(playerCountSamples.stream().mapToInt(Integer::intValue).average().orElse(0));
+		averagePlayerCount = (int) Math.round((double) playerCountSum / playerCountSampleN);
 	}
 
 	public double getAveragePlayerCount()
@@ -192,6 +189,14 @@ public class SplashSession
 			result.add(new int[]{entry.getKey(), entry.getValue()});
 		}
 		return result;
+	}
+
+	/**
+	 * Un-finalize this session so it can be resumed after a brief interruption.
+	 */
+	public void resume()
+	{
+		this.endTime = null;
 	}
 
 	public void finalizeSession()

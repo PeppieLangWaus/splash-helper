@@ -61,6 +61,7 @@ import xyz.peppie.splashhelper.service.NotificationService;
 import xyz.peppie.splashhelper.service.PlayerTracker;
 import xyz.peppie.splashhelper.service.RuneCalculator;
 import xyz.peppie.splashhelper.service.SessionManager;
+import xyz.peppie.splashhelper.service.SplashWebSocketClient;
 import xyz.peppie.splashhelper.service.TileManager;
 import xyz.peppie.splashhelper.ui.SplashStatisticsPanel;
 import xyz.peppie.splashhelper.util.Constants;
@@ -131,6 +132,9 @@ public class SplashHelperPlugin extends Plugin
 	@Inject
 	private ClientThread clientThread;
 
+	@Inject
+	private SplashWebSocketClient webSocketClient;
+
 	// Statistics panel
 	private SplashStatisticsPanel statisticsPanel;
 	private NavigationButton navButton;
@@ -145,9 +149,13 @@ public class SplashHelperPlugin extends Plugin
 	
 	// Track previous game state for welcome message
 	private GameState previousGameState = null;
+	private boolean serverConnectPending = false;
 
 	// Session tracking delegated to SessionManager service
 	private Instant lastStatsSample = null;
+
+	// Tracks the last "Timer started" message to avoid spamming identical messages
+	private String lastTimerChatMessage = null;
 	
 	// Magic attack bonus tracking
 	@Getter
@@ -269,7 +277,7 @@ public class SplashHelperPlugin extends Plugin
 		tileManager.loadPersistedTiles();
 
 		// Create statistics panel
-		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager, clientThread);
+		statisticsPanel = new SplashStatisticsPanel(this, config, itemManager, sessionManager, webSocketClient, clientThread);
 		
 		final BufferedImage icon = ImageUtil.loadImageResource(SplashHelperPlugin.class, "icon.png");
 		
@@ -281,6 +289,38 @@ public class SplashHelperPlugin extends Plugin
 			.build();
 		
 		clientToolbar.addNavigation(navButton);
+
+		// Set up WebSocket session lifecycle callbacks
+		sessionManager.setSessionStartedCallback(() -> {
+			if (config.enableServerSync())
+			{
+				webSocketClient.sendSessionStart(sessionManager.getCurrentSession());
+			}
+		});
+		sessionManager.setSessionFinalizedCallback(session -> {
+			if (config.enableServerSync())
+			{
+				webSocketClient.sendSessionEnd(session);
+			}
+		});
+		// Re-send SESSION_START after a WS reconnect so the server always has the
+		// current session even if it missed the original SESSION_START (e.g. mid-session
+		// network drop, or a re-auth triggered by requestSetupLink()).
+		webSocketClient.setOnAuthSuccessCallback(() -> {
+			clientThread.invokeLater(() -> {
+				SplashSession session = sessionManager.getCurrentSession();
+				if (session != null && config.enableServerSync())
+				{
+					webSocketClient.sendSessionStart(session);
+				}
+			});
+		});
+
+		// If server sync is enabled, always mark a connect as pending on startup.
+		// requestServerConnection() will either connect immediately (if already logged in
+		// with a valid player name) or defer to the next in-game tick via serverConnectPending.
+		serverConnectPending = config.enableServerSync();
+		requestServerConnection();
 	}
 
 	@Override
@@ -303,9 +343,17 @@ public class SplashHelperPlugin extends Plugin
 		
 		// Finalize any active session
 		sessionManager.finalizeSession();
+		// Clear the resumable-session pointer so that a disable/enable cycle does not
+		// resume the just-finalized session, which would create duplicate history entries.
+		sessionManager.clearResumableSession();
+		
+		// Disconnect WebSocket (don't shutdown — singleton survives plugin disable/enable)
+		serverConnectPending = false;
+		webSocketClient.disconnect();
 		
 		timerEnd = null;
 		hasNotified = false;
+		lastTimerChatMessage = null;
 		tileManager.reset();
 		lastStatsSample = null;
 		playerTracker.reset();
@@ -328,6 +376,31 @@ public class SplashHelperPlugin extends Plugin
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Splash Helper is active!", null);
 			}
+
+			// Connect to WS server when the player finishes logging in or hopping.
+			// Include LOADING since RuneLite sometimes transitions through it between
+			// LOGGING_IN and LOGGED_IN, which would otherwise miss the trigger.
+			if (config.enableServerSync() &&
+				(previousGameState == GameState.LOGIN_SCREEN ||
+				 previousGameState == GameState.HOPPING ||
+				 previousGameState == GameState.LOGGING_IN ||
+				 previousGameState == GameState.LOADING))
+			{
+				requestServerConnection();
+			}
+		}
+
+		// Finalize any active session before disconnecting or hopping
+		// so SESSION_END is sent while the WebSocket is still open.
+		if (currentState == GameState.HOPPING || currentState == GameState.LOGIN_SCREEN)
+		{
+			sessionManager.finalizeSession();
+		}
+
+		if (currentState == GameState.LOGIN_SCREEN)
+		{
+			serverConnectPending = false;
+			webSocketClient.disconnect();
 		}
 		
 		previousGameState = currentState;
@@ -355,6 +428,56 @@ public class SplashHelperPlugin extends Plugin
 				log.debug("Statistics panel rebuilt due to config change: {}", event.getKey());
 			}
 		}
+
+		// Reconnect or disconnect when server sync settings change
+		if (event.getKey().equals("enableServerSync") || event.getKey().equals("serverUrl"))
+		{
+			if (config.enableServerSync())
+			{
+				requestServerConnection();
+			}
+			else
+			{
+				serverConnectPending = false;
+				webSocketClient.disconnect();
+			}
+		}
+	}
+
+	private void requestServerConnection()
+	{
+		if (!config.enableServerSync())
+		{
+			serverConnectPending = false;
+			return;
+		}
+
+		if (client.getGameState() != GameState.LOGGED_IN)
+		{
+			// Not logged in yet — leave the pending flag as-is so that the next
+			// game tick (which only fires while in-game) can retry.
+			return;
+		}
+
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null || localPlayer.getName() == null || localPlayer.getName().trim().isEmpty())
+		{
+			serverConnectPending = true;
+			return;
+		}
+
+		serverConnectPending = false;
+		webSocketClient.connect(localPlayer.getName());
+	}
+
+	private void attemptPendingServerConnection()
+	{
+		if (!serverConnectPending || webSocketClient.isConnected())
+		{
+			return;
+		}
+
+		requestServerConnection();
 	}
 
 	@Subscribe
@@ -421,6 +544,7 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		attemptPendingServerConnection();
 		updateVisualNotificationState();
 		checkTimerExpiration();
 		checkHpThreshold();
@@ -829,8 +953,12 @@ public class SplashHelperPlugin extends Plugin
 		
 		if (config.enableWelcomeMessage())
 		{
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
-				String.format("Timer started: %d minutes", durationMinutes), null);
+			String timerMsg = String.format("Timer started: %d minutes", durationMinutes);
+			if (!timerMsg.equals(lastTimerChatMessage))
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", timerMsg, null);
+				lastTimerChatMessage = timerMsg;
+			}
 		}
 		
 		// Start session when timer starts (player engaged with target)
@@ -1139,6 +1267,7 @@ public class SplashHelperPlugin extends Plugin
 				notificationService.sendTimerNotification("Splash timer has expired!");
 				hasNotified = true;
 				timerEnd = null;
+				lastTimerChatMessage = null; // allow the "Timer started" message to show again next time
 				log.debug("Timer expired - notification sent, timer cleared");
 			}
 		}
@@ -1203,6 +1332,11 @@ public class SplashHelperPlugin extends Plugin
 				{
 					sampleSessionStatistics();
 					lastStatsSample = now;
+
+					if (config.enableServerSync())
+					{
+						webSocketClient.sendSessionUpdate(sessionManager.getCurrentSession());
+					}
 				}
 			}
 			

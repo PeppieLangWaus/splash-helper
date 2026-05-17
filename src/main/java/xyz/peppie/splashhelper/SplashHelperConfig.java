@@ -374,18 +374,17 @@ public interface SplashHelperConfig extends Config
 		return EnumSet.allOf(SessionStatField.class);
 	}
 
+	@Range(min = 0, max = 3600)
 	@ConfigItem(
-		keyName = "maxPlayerCountSamples",
-		name = "Max Player Count Samples",
-		description = "Maximum number of player count samples to store (prevents memory issues)"
+		keyName = "sessionResumeWindowSeconds",
+		name = "Session Resume Window (seconds)",
+		description = "How long after a session ends it can be resumed when the same player returns (e.g. after using dragon spear or the 6-hour logout). Set to 0 to disable.",
+		section = statisticsSection,
+		position = 12
 	)
-	@Range(
-		min = 10,
-		max = 1000
-	)
-	default int maxPlayerCountSamples()
+	default int sessionResumeWindowSeconds()
 	{
-		return 100;
+		return 600; // 10 minutes
 	}
 
 	@ConfigItem(
@@ -406,5 +405,39 @@ public interface SplashHelperConfig extends Config
 	default ModifierlessKeybind safetyModeHotkey()
 	{
 		return new ModifierlessKeybind(KeyEvent.VK_MULTIPLY, 0);
+	}
+
+	// ==================== Server Sync ====================
+
+	@ConfigSection(
+		name = "Server Sync",
+		description = "Sync live session data with a Splash Helper server via WebSocket",
+		position = 40,
+		closedByDefault = true
+	)
+	String serverSyncSection = "serverSync";
+
+	@ConfigItem(
+		keyName = "enableServerSync",
+		name = "Enable Server Sync",
+		description = "Connect to a Splash Helper server and stream session data in real time",
+		section = serverSyncSection,
+		position = 0
+	)
+	default boolean enableServerSync()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "serverUrl",
+		name = "Server URL",
+		description = "WebSocket URL of the Splash Helper server",
+		section = serverSyncSection,
+		position = 1
+	)
+	default String serverUrl()
+	{
+		return "wss://api.splasher.help";
 	}
 }

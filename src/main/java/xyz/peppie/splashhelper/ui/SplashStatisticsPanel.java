@@ -33,6 +33,7 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.components.PluginErrorPanel;
 import xyz.peppie.splashhelper.service.SessionManager;
+import xyz.peppie.splashhelper.service.SplashWebSocketClient;
 
 @Slf4j
 public class SplashStatisticsPanel extends PluginPanel implements SplashSessionHistoryBox.SessionDeleteListener
@@ -41,6 +42,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final SplashHelperConfig config;
     private final ItemManager itemManager;
     private final SessionManager sessionManager;
+    private final SplashWebSocketClient webSocketClient;
     private final ClientThread clientThread;
 
     // Main layout container
@@ -84,13 +86,14 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
     private int lastHistorySize = 0;
 
-    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, ClientThread clientThread)
+    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, SplashWebSocketClient webSocketClient, ClientThread clientThread)
     {
         super(true);
         this.plugin = plugin;
         this.config = config;
         this.itemManager = itemManager;
         this.sessionManager = sessionManager;
+        this.webSocketClient = webSocketClient;
         this.clientThread = clientThread;
 
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -149,6 +152,13 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         // Action bar with export buttons at top
         layoutPanel.add(buildActionBar());
         layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+
+        // Server sync section (setup link button)
+        if (config.enableServerSync())
+        {
+            layoutPanel.add(buildServerSyncPanel());
+            layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        }
 
         // Only add panels if they are enabled in config
         if (config.showOverallStats())
@@ -217,6 +227,158 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         titlePanel.add(buttonPanel, BorderLayout.EAST);
         actionBar.add(titlePanel, BorderLayout.CENTER);
         return actionBar;
+    }
+
+    private JPanel buildServerSyncPanel()
+    {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        panel.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
+
+        JPanel inner = new JPanel(new BorderLayout());
+        inner.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        inner.setBorder(new EmptyBorder(8, 10, 8, 10));
+
+        JLabel sectionLabel = new JLabel("Server Sync");
+        sectionLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+        sectionLabel.setFont(FontManager.getRunescapeSmallFont());
+        inner.add(sectionLabel, BorderLayout.WEST);
+
+        JPanel rightPanel = new JPanel(new BorderLayout(5, 0));
+        rightPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+        JLabel statusLabel = new JLabel();
+        statusLabel.setFont(FontManager.getRunescapeSmallFont());
+        rightPanel.add(statusLabel, BorderLayout.WEST);
+
+        javax.swing.JButton actionButton = new javax.swing.JButton();
+        actionButton.setFocusPainted(false);
+        actionButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        rightPanel.add(actionButton, BorderLayout.EAST);
+
+        // Initial state
+        updateSyncPanelState(statusLabel, actionButton);
+
+        actionButton.addActionListener(e -> onSetupLinkButtonClicked(statusLabel, actionButton));
+
+        // Periodically update status label
+        javax.swing.Timer refreshTimer = new javax.swing.Timer(2000, e ->
+            SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton)));
+        refreshTimer.start();
+
+        inner.add(rightPanel, BorderLayout.EAST);
+        panel.add(inner, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void updateSyncPanelState(JLabel statusLabel, javax.swing.JButton button)
+    {
+        if (webSocketClient.isAuthenticated())
+        {
+            statusLabel.setText("Connected");
+            statusLabel.setForeground(new java.awt.Color(0x43B581)); // green
+
+            // Do not show setup prompts while actively authenticated; only show
+            // a button when we already have a valid setup link to copy.
+            if (webSocketClient.isSetupLinkValid())
+            {
+                button.setText("Show Link");
+                button.setToolTipText("Copy setup link to clipboard");
+                button.setVisible(true);
+            }
+            else
+            {
+                button.setVisible(false);
+            }
+        }
+        else if (webSocketClient.isConnected())
+        {
+            statusLabel.setText("Connecting...");
+            statusLabel.setForeground(new java.awt.Color(0xFAA61A)); // yellow
+            button.setVisible(false);
+        }
+        else
+        {
+            statusLabel.setText("Disconnected");
+            statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+            button.setText("Generate Link");
+            button.setToolTipText("Connect and generate a setup link");
+            button.setVisible(true);
+        }
+    }
+
+    private void onSetupLinkButtonClicked(JLabel statusLabel, javax.swing.JButton button)
+    {
+        if (webSocketClient.isSetupLinkValid())
+        {
+            // Copy to clipboard and show popup
+            String link = webSocketClient.getSetupLink();
+            StringSelection selection = new StringSelection(link);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            JOptionPane.showMessageDialog(this,
+                "Setup link copied to clipboard!\n\n" + link,
+                "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+        }
+        else
+        {
+            // Request a new link via re-auth (also connects if disconnected)
+            webSocketClient.requestSetupLink();
+            button.setText("Requesting...");
+            button.setEnabled(false);
+
+            // Poll up to 5 times (1 second apart) for the auth response
+            final int maxAttempts = 5;
+            final int[] attempt = {0};
+            javax.swing.Timer pollTimer = new javax.swing.Timer(1000, null);
+            pollTimer.addActionListener(ev -> {
+                attempt[0]++;
+                Boolean authResult = webSocketClient.getLastAuthSetupRequired();
+
+                if (webSocketClient.isSetupLinkValid())
+                {
+                    // Link received — copy to clipboard
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        String link = webSocketClient.getSetupLink();
+                        StringSelection sel = new StringSelection(link);
+                        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                        JOptionPane.showMessageDialog(this,
+                            "Setup link copied to clipboard!\n\n" + link,
+                            "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+                    });
+                }
+                else if (authResult != null && !authResult)
+                {
+                    // Auth succeeded but account is already set up
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        JOptionPane.showMessageDialog(this,
+                            "Your account is already set up!\n"
+                            + "You can log in on the web dashboard directly.",
+                            "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+                    });
+                }
+                else if (attempt[0] >= maxAttempts)
+                {
+                    // Timed out waiting for a response
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        JOptionPane.showMessageDialog(this,
+                            "Could not generate a setup link.\n"
+                            + "Make sure Server Sync is enabled, you are logged in,\n"
+                            + "and the server is running.",
+                            "Setup Link", JOptionPane.WARNING_MESSAGE);
+                    });
+                }
+            });
+            pollTimer.start();
+        }
     }
 
     private JLabel createIconButton(ImageIcon icon, String tooltip)
