@@ -169,6 +169,14 @@ public class SessionManager
 	 */
 	public void finalizeSession()
 	{
+		finalizeSession(false);
+	}
+
+	/**
+	 * Finalize the current session and optionally allow it to be resumed.
+	 */
+	public void finalizeSession(boolean allowResume)
+	{
 		if (currentSession == null || !currentSession.isActive())
 		{
 			return;
@@ -204,9 +212,9 @@ public class SessionManager
 				currentSession.getSpellsCast(), currentSession.getMagicXpGained(), currentSession.getRuneCostGp());
 		}
 
-		// Mark as resumable so the player can resume quickly after spear use or world hop
+		// Only keep a finalized session resumable for short interruption flows.
 		long resumeWindowMs = (long) config.sessionResumeWindowSeconds() * 1000;
-		if (resumeWindowMs > 0)
+		if (allowResume && resumeWindowMs > 0)
 		{
 			resumableSession = toNotify;
 			resumableSessionExpiryMs = System.currentTimeMillis() + resumeWindowMs;
@@ -250,7 +258,7 @@ public class SessionManager
 		if (ticksSinceLastCast >= Constants.SESSION_TIMEOUT_TICKS)
 		{
 			log.debug("Session timeout - no cast in {} ticks", ticksSinceLastCast);
-			finalizeSession();
+			finalizeSession(true);
 			return true;
 		}
 
@@ -337,6 +345,17 @@ public class SessionManager
 	}
 
 	/**
+	 * Update the sticky-knight flag for the active session when target detection changes.
+	 */
+	public void updateStickyKnight(boolean stickyKnight)
+	{
+		if (currentSession != null)
+		{
+			currentSession.setStickyKnight(stickyKnight);
+		}
+	}
+
+	/**
 	 * Check if there's an active session.
 	 */
 	public boolean hasActiveSession()
@@ -407,7 +426,7 @@ public class SessionManager
 	{
 		if (currentSession != null && currentSession.isActive())
 		{
-			finalizeSession();
+			finalizeSession(false);
 		}
 		currentSession = null;
 		resumableSession = null;

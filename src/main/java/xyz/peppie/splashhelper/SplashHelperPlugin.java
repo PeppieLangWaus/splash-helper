@@ -155,7 +155,7 @@ public class SplashHelperPlugin extends Plugin
 	private Instant lastStatsSample = null;
 
 	// Tracks the last "Timer started" message to avoid spamming identical messages
-	private String lastTimerChatMessage = null;
+	private int lastTimerChatTick = -1;
 	
 	// Magic attack bonus tracking
 	@Getter
@@ -342,7 +342,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 		
 		// Finalize any active session
-		sessionManager.finalizeSession();
+		sessionManager.finalizeSession(false);
 		// Clear the resumable-session pointer so that a disable/enable cycle does not
 		// resume the just-finalized session, which would create duplicate history entries.
 		sessionManager.clearResumableSession();
@@ -353,7 +353,7 @@ public class SplashHelperPlugin extends Plugin
 		
 		timerEnd = null;
 		hasNotified = false;
-		lastTimerChatMessage = null;
+		lastTimerChatTick = -1;
 		tileManager.reset();
 		lastStatsSample = null;
 		playerTracker.reset();
@@ -394,7 +394,10 @@ public class SplashHelperPlugin extends Plugin
 		// so SESSION_END is sent while the WebSocket is still open.
 		if (currentState == GameState.HOPPING || currentState == GameState.LOGIN_SCREEN)
 		{
-			sessionManager.finalizeSession();
+			sessionManager.finalizeSession(true);
+			timerEnd = null;
+			hasNotified = false;
+			lastTimerChatTick = -1;
 		}
 
 		if (currentState == GameState.LOGIN_SCREEN)
@@ -589,7 +592,8 @@ public class SplashHelperPlugin extends Plugin
 			tileManager.setCurrentTarget(null);
 			timerEnd = null;
 			hasNotified = false;
-			sessionManager.finalizeSession();
+			lastTimerChatTick = -1;
+			sessionManager.finalizeSession(false);
 		}
 	}
 
@@ -954,10 +958,11 @@ public class SplashHelperPlugin extends Plugin
 		if (config.enableWelcomeMessage())
 		{
 			String timerMsg = String.format("Timer started: %d minutes", durationMinutes);
-			if (!timerMsg.equals(lastTimerChatMessage))
+			int currentTick = client.getTickCount();
+			if (currentTick != lastTimerChatTick)
 			{
 				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", timerMsg, null);
-				lastTimerChatMessage = timerMsg;
+				lastTimerChatTick = currentTick;
 			}
 		}
 		
@@ -1043,7 +1048,7 @@ public class SplashHelperPlugin extends Plugin
 	private void startSession(SplashSpell spell)
 	{
 		// Finalize any existing session first
-		sessionManager.finalizeSession();
+		sessionManager.finalizeSession(false);
 
 		Player localPlayer = client.getLocalPlayer();
 		if (localPlayer == null)
@@ -1069,6 +1074,11 @@ public class SplashHelperPlugin extends Plugin
 		if (session == null || !session.isActive())
 		{
 			return;
+		}
+
+		if (tileManager.getCurrentTarget() != null)
+		{
+			sessionManager.updateStickyKnight(isStickyKnight());
 		}
 
 		// Update magic XP
@@ -1267,7 +1277,7 @@ public class SplashHelperPlugin extends Plugin
 				notificationService.sendTimerNotification("Splash timer has expired!");
 				hasNotified = true;
 				timerEnd = null;
-				lastTimerChatMessage = null; // allow the "Timer started" message to show again next time
+				lastTimerChatTick = -1;
 				log.debug("Timer expired - notification sent, timer cleared");
 			}
 		}
@@ -1325,7 +1335,12 @@ public class SplashHelperPlugin extends Plugin
 				}
 				
 				// Check for session timeout via service (session is independent of timer)
-				sessionManager.checkSessionTimeout();
+				if (sessionManager.checkSessionTimeout())
+				{
+					timerEnd = null;
+					hasNotified = false;
+					lastTimerChatTick = -1;
+				}
 				
 				if (lastStatsSample == null || 
 					Duration.between(lastStatsSample, now).getSeconds() >= config.statisticsInterval())

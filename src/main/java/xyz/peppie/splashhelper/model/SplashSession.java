@@ -22,7 +22,8 @@ public class SplashSession
 	private Instant logoutTime;
 	@Setter
 	private int world;
-	private final boolean stickyKnight;
+	@Setter
+	private boolean stickyKnight;
 
 	// Dynamic fields (updated during session)
 	@Setter

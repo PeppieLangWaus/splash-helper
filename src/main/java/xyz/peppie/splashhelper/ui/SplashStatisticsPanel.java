@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.callback.ClientThread;
 import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.model.OverallStatField;
 import xyz.peppie.splashhelper.model.SessionStatField;
 import xyz.peppie.splashhelper.SplashHelperConfig;
@@ -655,11 +656,16 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             overallHoursRemainingLabel.setText(String.format("%.1fh", hoursRemaining));
             overallHoursRemainingLabel.setForeground(Color.CYAN);
 
-            // Calculate potential XP (using current session spell XP if available)
+            // Calculate potential XP from the active session spell, or fall back to the selected spell.
             int potentialXp = 0;
-            if (hasActiveSession && currentSession != null && currentSession.getSpell() != null)
+            SplashSpell potentialXpSpell = currentSession != null ? currentSession.getSpell() : null;
+            if (potentialXpSpell == null)
             {
-                potentialXp = (int) (remaining * currentSession.getSpell().getBaseXp());
+                potentialXpSpell = config.selectedSpell();
+            }
+            if (potentialXpSpell != null)
+            {
+                potentialXp = (int) Math.round(remaining * potentialXpSpell.getBaseXp());
             }
             overallPotentialXpLabel.setText(formatNumber(potentialXp));
             overallPotentialXpLabel.setForeground(Color.CYAN);
