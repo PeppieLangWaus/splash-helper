@@ -32,6 +32,9 @@ public class TileManager
 	@Inject
 	private SessionManager sessionManager;
 
+	@Inject
+	private NotificationService notificationService;
+
 	@Getter
 	private WorldPoint boundaryTile = null;
 
@@ -261,6 +264,7 @@ public class TileManager
 						hasEscaped = false;
 						boundaryNotified = false;
 						boundaryTickCounter = 0;
+						notificationService.unmuteNotifications();
 					}
 				}
 				else
@@ -290,6 +294,7 @@ public class TileManager
 		hasEscaped = false;
 		boundaryNotified = false;
 		boundaryTickCounter = 0;
+		notificationService.unmuteNotifications();
 	}
 
 	/**
@@ -306,6 +311,7 @@ public class TileManager
 		movementsPerMinute = 0.0;
 		hasEscaped = false;
 		boundaryTickCounter = 0;
+		notificationService.unmuteNotifications();
 	}
 
 	/**

@@ -6,13 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.client.Notifier;
-import net.runelite.client.config.FlashNotification;
-import net.runelite.client.config.Notification;
-import net.runelite.client.config.NotificationSound;
-import net.runelite.client.config.RequestFocusType;
 import xyz.peppie.splashhelper.SplashHelperConfig;
 
-import java.awt.Color;
 import java.awt.TrayIcon;
 
 /**
@@ -130,8 +125,8 @@ public class NotificationService
 	private void sendNotificationInternal(String message)
 	{
 		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "Splash Helper", message, null);
-		
-		if (config.useVisualNotification())
+
+		if (config.enableVisualNotification())
 		{
 			// Trigger visual notification overlay in main plugin
 			if (visualNotificationCallback != null)
@@ -140,26 +135,14 @@ public class NotificationService
 			}
 			log.debug("Visual notification triggered: {}", message);
 		}
-		else
+
+		if (config.enableSoundNotification())
 		{
-			// Send system notification with tray and native sound
-			Notification notification = new Notification(
-				true,     // enabled
-				true,     // initialized
-				true,     // override
-				true,     // tray (Windows toast)
-				TrayIcon.MessageType.WARNING,
-				RequestFocusType.FORCE,
-				NotificationSound.NATIVE,
-				null,     // soundName (not needed for NATIVE)
-				100,      // volume
-				5,        // timeout (seconds)
-				true,     // gameMessage
-				FlashNotification.DISABLED,
-				Color.GREEN,
-				false     // sendWhenFocused
-			);
-			notifier.notify(notification, message);
+			// Defer to the user's own RuneLite-wide Settings > Notifications config
+			// (sound type, volume, timeout, tray, request-focus behavior, send-when-focused)
+			// instead of forcing our own opinionated Notification object - this is what
+			// actually respects the user's "send notifications when focused" preference.
+			notifier.notify(message, TrayIcon.MessageType.WARNING);
 		}
 	}
 }

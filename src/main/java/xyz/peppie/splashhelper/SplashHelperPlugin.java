@@ -398,6 +398,7 @@ public class SplashHelperPlugin extends Plugin
 			timerEnd = null;
 			hasNotified = false;
 			lastTimerChatTick = -1;
+			tileManager.resetEscapedState();
 		}
 
 		if (currentState == GameState.LOGIN_SCREEN)

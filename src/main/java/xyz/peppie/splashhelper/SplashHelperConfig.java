@@ -147,12 +147,23 @@ public interface SplashHelperConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "useVisualNotification",
-		name = "Visual Notification",
-		description = "Use screen tint instead of sound for notifications",
+		keyName = "enableSoundNotification",
+		name = "Sound Notification",
+		description = "Play a notification sound (Windows toast + native sound)",
 		section = notificationSection
 	)
-	default boolean useVisualNotification()
+	default boolean enableSoundNotification()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "useVisualNotification",
+		name = "Visual Notification",
+		description = "Show a screen tint for notifications",
+		section = notificationSection
+	)
+	default boolean enableVisualNotification()
 	{
 		return false;
 	}
