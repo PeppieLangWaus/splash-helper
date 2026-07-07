@@ -67,6 +67,9 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     // Current session
     private final JPanel currentPanel = new JPanel();
+    private JPanel currentContainer;
+    private JLabel currentTitleLabel;
+    private final JLabel resumeCountdownLabel = new JLabel();
     private final JLabel playerLabel = new JLabel("-");
     private final JLabel spellLabel = new JLabel("-");
     private final JLabel worldLabel = new JLabel("-");
@@ -86,6 +89,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final JPanel historyContainer = new JPanel();
     private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
     private int lastHistorySize = 0;
+
+    // UI refresh timers (stopped via shutdown() when the plugin is disabled)
+    private javax.swing.Timer syncRefreshTimer;
+    private final javax.swing.Timer resumeCountdownTimer;
 
     public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, SplashWebSocketClient webSocketClient, ClientThread clientThread)
     {
@@ -111,6 +118,23 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         // Add error panel (shown when no data)
         errorPanel.setContent("Splash Statistics", "Start splashing to see statistics.");
         add(errorPanel, BorderLayout.CENTER);
+
+        // Keep the resume-window countdown live even when no game ticks arrive
+        // (e.g. the player logged out — exactly when the resume window matters)
+        resumeCountdownTimer = new javax.swing.Timer(1000, e -> updateCurrentSessionState(plugin.getCurrentSession() != null && plugin.getCurrentSession().isActive()));
+        resumeCountdownTimer.start();
+    }
+
+    /**
+     * Stop the panel's Swing timers. Called when the plugin shuts down.
+     */
+    public void shutdown()
+    {
+        resumeCountdownTimer.stop();
+        if (syncRefreshTimer != null)
+        {
+            syncRefreshTimer.stop();
+        }
     }
 
     /**
@@ -128,6 +152,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             historyContainer.removeAll();
             historyBoxes.clear();
             lastHistorySize = 0;
+            currentContainer = null; // reassigned by buildPanels when the section is enabled
 
             // Rebuild panels with current config
             buildPanels();
@@ -262,10 +287,14 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
         actionButton.addActionListener(e -> onSetupLinkButtonClicked(statusLabel, actionButton));
 
-        // Periodically update status label
-        javax.swing.Timer refreshTimer = new javax.swing.Timer(2000, e ->
+        // Periodically update status label (replace any timer from a previous rebuild)
+        if (syncRefreshTimer != null)
+        {
+            syncRefreshTimer.stop();
+        }
+        syncRefreshTimer = new javax.swing.Timer(2000, e ->
             SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton)));
-        refreshTimer.start();
+        syncRefreshTimer.start();
 
         inner.add(rightPanel, BorderLayout.EAST);
         panel.add(inner, BorderLayout.CENTER);
@@ -478,7 +507,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     private JPanel buildCurrentSessionPanel(ItemManager itemManager)
     {
-        JPanel currentContainer = new JPanel();
+        currentContainer = new JPanel();
         currentContainer.setLayout(new BoxLayout(currentContainer, BoxLayout.Y_AXIS));
         currentContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         currentContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
@@ -486,10 +515,16 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         JPanel currentTitlePanel = new JPanel(new BorderLayout());
         currentTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
         currentTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
-        JLabel currentTitle = new JLabel("Current Session");
-        currentTitle.setForeground(Color.ORANGE);
-        currentTitle.setFont(FontManager.getRunescapeBoldFont());
-        currentTitlePanel.add(currentTitle, BorderLayout.WEST);
+        currentTitleLabel = new JLabel("Current Session");
+        currentTitleLabel.setForeground(Color.ORANGE);
+        currentTitleLabel.setFont(FontManager.getRunescapeBoldFont());
+        currentTitlePanel.add(currentTitleLabel, BorderLayout.WEST);
+
+        // Resume-window countdown, shown while a finished session can still resume
+        resumeCountdownLabel.setForeground(Color.GRAY);
+        resumeCountdownLabel.setFont(FontManager.getRunescapeSmallFont());
+        resumeCountdownLabel.setVisible(false);
+        currentTitlePanel.add(resumeCountdownLabel, BorderLayout.EAST);
         currentContainer.add(currentTitlePanel);
 
         currentPanel.setLayout(new GridLayout(0, 1, 0, 4));
@@ -652,13 +687,14 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             }
 
             // Calculate hours remaining (assuming 1 cast per 3 seconds = 1200 casts/hour)
-            double hoursRemaining = remaining / 1200.0;
+            double hoursRemaining = (double) remaining / xyz.peppie.splashhelper.util.Constants.CASTS_PER_HOUR;
             overallHoursRemainingLabel.setText(String.format("%.1fh", hoursRemaining));
             overallHoursRemainingLabel.setForeground(Color.CYAN);
 
-            // Calculate potential XP from the active session spell, or fall back to the selected spell.
+            // Calculate potential XP from the spell the remaining-casts cache
+            // was computed with, falling back to the selected spell.
             int potentialXp = 0;
-            SplashSpell potentialXpSpell = currentSession != null ? currentSession.getSpell() : null;
+            SplashSpell potentialXpSpell = plugin.getCachedProjectionSpell();
             if (potentialXpSpell == null)
             {
                 potentialXpSpell = config.selectedSpell();
@@ -729,11 +765,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             }
 
             // Update current session display
+            updateCurrentSessionState(hasActiveSession);
+
             if (hasActiveSession && currentSession != null)
             {
-                currentPanel.setVisible(true);
-                supplyBox.setVisible(true);
-
                 playerLabel.setText(currentSession.getPlayerName() != null ? currentSession.getPlayerName() : "-");
 
                 if (currentSession.getSpell() != null)
@@ -787,34 +822,9 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                 highestPlayerCountLabel.setText(String.valueOf(currentSession.getHighestPlayerCount()));
                 highestPlayerCountLabel.setForeground(Color.CYAN);
             }
-            else
-            {
-                // No active session - reset current session to zeroed values
-                currentPanel.setVisible(true);
-                supplyBox.setVisible(true);
-
-                playerLabel.setText("-");
-                spellLabel.setText("-");
-                spellLabel.setForeground(Color.GRAY);
-                worldLabel.setText("-");
-                stickyLabel.setText("-");
-                stickyLabel.setForeground(Color.GRAY);
-                timeLabel.setText("0:00");
-                timeLabel.setForeground(Color.GRAY);
-                castsLabel.setText("0");
-                xpGainedLabel.setText("0");
-                xpHourLabel.setText("0/hr");
-                xpHourLabel.setForeground(Color.GRAY);
-                runeCostLabel.setText("0 gp");
-                runeCostLabel.setForeground(Color.GRAY);
-                playerCountLabel.setText("0");
-                playerCountLabel.setForeground(Color.GRAY);
-                highestPlayerCountLabel.setText("0");
-                highestPlayerCountLabel.setForeground(Color.GRAY);
-
-                // Show empty runes row
-                supplyBox.buildItems(new java.util.ArrayList<>(), 0);
-            }
+            // When inactive the labels keep the last session's data — it is
+            // either hidden entirely or collapsed behind the resume countdown,
+            // and re-expands with correct values if the session resumes.
 
             // Update session history
             updateHistoryDisplay(history);
@@ -822,6 +832,47 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             revalidate();
             repaint();
         });
+    }
+
+    /**
+     * Show the Current Session panel in one of three states:
+     * active session → fully expanded; finished but still inside the resume
+     * window → collapsed to a grayed title with a live countdown (data kept
+     * underneath so a resume re-expands seamlessly); finalized → hidden.
+     */
+    private void updateCurrentSessionState(boolean hasActiveSession)
+    {
+        if (currentContainer == null)
+        {
+            return;
+        }
+
+        if (hasActiveSession)
+        {
+            currentContainer.setVisible(true);
+            currentTitleLabel.setForeground(Color.ORANGE);
+            resumeCountdownLabel.setVisible(false);
+            currentPanel.setVisible(true);
+            supplyBox.setVisible(true);
+        }
+        else if (sessionManager.hasResumableSession())
+        {
+            long remainingMs = sessionManager.getResumableSessionRemainingMs();
+            long remainingSeconds = (remainingMs + 999) / 1000;
+            currentContainer.setVisible(true);
+            currentTitleLabel.setForeground(Color.GRAY);
+            resumeCountdownLabel.setText(String.format("resumes %d:%02d", remainingSeconds / 60, remainingSeconds % 60));
+            resumeCountdownLabel.setVisible(true);
+            currentPanel.setVisible(false);
+            supplyBox.setVisible(false);
+        }
+        else
+        {
+            currentContainer.setVisible(false);
+        }
+
+        currentContainer.revalidate();
+        currentContainer.repaint();
     }
 
     private String formatDuration(long seconds)
