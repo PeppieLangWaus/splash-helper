@@ -13,10 +13,15 @@ import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.PanelComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 import xyz.peppie.splashhelper.SplashHelperPlugin;
+import xyz.peppie.splashhelper.model.TimerAlertLevel;
 import xyz.peppie.splashhelper.service.TileManager;
 
 public class SplashHelperOverlay extends Overlay
 {
+	/** Shared with VisualNotificationOverlay so text and tint change together. */
+	public static final Color WARNING_COLOR = new Color(255, 140, 0);
+	public static final Color CRITICAL_COLOR = Color.RED;
+
 	private SplashHelperPlugin plugin;
 	private TileManager tileManager;
 	private final PanelComponent panelComponent = new PanelComponent();
@@ -68,15 +73,15 @@ public class SplashHelperOverlay extends Overlay
 		// Show movement tracking stats
 		if (tileManager.getKnightTile1() != null && tileManager.getKnightTile2() != null)
 		{
-			double movementsPerMin = tileManager.getMovementsPerMinute();
-			String movementText = String.format("%.1f/min", movementsPerMin);
-			
+			double movementsPerHour = tileManager.getMovementsPerHour();
+			String movementText = String.format("%.1f/hr", movementsPerHour);
+
 			Color movementColor = Color.CYAN;
-			if (movementsPerMin > 0)
+			if (movementsPerHour > 0)
 			{
 				movementColor = Color.GREEN;
 			}
-			
+
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left("Movements:")
 				.right(movementText)
@@ -115,14 +120,16 @@ public class SplashHelperOverlay extends Overlay
 			long seconds = totalSeconds % 60;
 			String timeString = String.format("%02d:%02d", minutes, seconds);
 
+			// Same thresholds as the visual notification tint
+			TimerAlertLevel level = plugin.getTimerAlertLevel();
 			Color timeColor = Color.GREEN;
-			if (minutes < 1)
+			if (level == TimerAlertLevel.WARNING)
 			{
-				timeColor = Color.YELLOW;
+				timeColor = WARNING_COLOR;
 			}
-			if (seconds < 30 && minutes == 0)
+			else if (level == TimerAlertLevel.CRITICAL || level == TimerAlertLevel.EXPIRED)
 			{
-				timeColor = Color.RED;
+				timeColor = CRITICAL_COLOR;
 			}
 
 			panelComponent.getChildren().add(LineComponent.builder()

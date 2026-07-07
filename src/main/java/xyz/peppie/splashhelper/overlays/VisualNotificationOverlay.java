@@ -14,10 +14,17 @@ import xyz.peppie.splashhelper.SplashHelperPlugin;
 
 /**
  * Full-screen visual notification overlay.
- * Fills the entire game canvas with a translucent color when triggered.
+ * Fills the game canvas with a translucent tint: orange once the timer passes
+ * the warning threshold, red at the critical threshold, and red when a
+ * notification fires (timer expiry) — the same trigger times as the timer
+ * overlay's text colors.
  */
 public class VisualNotificationOverlay extends Overlay
 {
+	private static final int TINT_ALPHA = 80;
+	private static final Color WARNING_TINT = withAlpha(SplashHelperOverlay.WARNING_COLOR);
+	private static final Color CRITICAL_TINT = withAlpha(SplashHelperOverlay.CRITICAL_COLOR);
+
 	private final Client client;
 	private final SplashHelperPlugin plugin;
 	private final SplashHelperConfig config;
@@ -36,23 +43,45 @@ public class VisualNotificationOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
+		if (!config.enableVisualNotification())
+		{
+			return null;
+		}
+
+		Color tint = null;
 		if (plugin.isShowVisualNotification())
 		{
+			// Notification fired (e.g. timer expired) — strongest alert
+			tint = CRITICAL_TINT;
+		}
+		else
+		{
+			switch (plugin.getTimerAlertLevel())
+			{
+				case WARNING:
+					tint = WARNING_TINT;
+					break;
+				case CRITICAL:
+				case EXPIRED:
+					tint = CRITICAL_TINT;
+					break;
+				default:
+					break;
+			}
+		}
+
+		if (tint != null)
+		{
 			Color originalColor = graphics.getColor();
-			
-			// Use configured color with some transparency
-			Color notificationColor = config.visualNotificationColor();
-			Color transparentColor = new Color(
-				notificationColor.getRed(),
-				notificationColor.getGreen(),
-				notificationColor.getBlue(),
-				100  // Alpha for transparency
-			);
-			
-			graphics.setColor(transparentColor);
+			graphics.setColor(tint);
 			graphics.fill(new Rectangle(client.getCanvas().getSize()));
 			graphics.setColor(originalColor);
 		}
 		return null;
+	}
+
+	private static Color withAlpha(Color color)
+	{
+		return new Color(color.getRed(), color.getGreen(), color.getBlue(), TINT_ALPHA);
 	}
 }

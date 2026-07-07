@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.callback.ClientThread;
 import xyz.peppie.splashhelper.model.SplashSession;
+import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.model.OverallStatField;
 import xyz.peppie.splashhelper.model.SessionStatField;
 import xyz.peppie.splashhelper.SplashHelperConfig;
@@ -33,6 +34,7 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.ui.components.PluginErrorPanel;
 import xyz.peppie.splashhelper.service.SessionManager;
+import xyz.peppie.splashhelper.service.SplashWebSocketClient;
 
 @Slf4j
 public class SplashStatisticsPanel extends PluginPanel implements SplashSessionHistoryBox.SessionDeleteListener
@@ -41,6 +43,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final SplashHelperConfig config;
     private final ItemManager itemManager;
     private final SessionManager sessionManager;
+    private final SplashWebSocketClient webSocketClient;
     private final ClientThread clientThread;
 
     // Main layout container
@@ -64,6 +67,9 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     // Current session
     private final JPanel currentPanel = new JPanel();
+    private JPanel currentContainer;
+    private JLabel currentTitleLabel;
+    private final JLabel resumeCountdownLabel = new JLabel();
     private final JLabel playerLabel = new JLabel("-");
     private final JLabel spellLabel = new JLabel("-");
     private final JLabel worldLabel = new JLabel("-");
@@ -84,13 +90,18 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final List<SplashSessionHistoryBox> historyBoxes = new ArrayList<>();
     private int lastHistorySize = 0;
 
-    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, ClientThread clientThread)
+    // UI refresh timers (stopped via shutdown() when the plugin is disabled)
+    private javax.swing.Timer syncRefreshTimer;
+    private final javax.swing.Timer resumeCountdownTimer;
+
+    public SplashStatisticsPanel(SplashHelperPlugin plugin, SplashHelperConfig config, ItemManager itemManager, SessionManager sessionManager, SplashWebSocketClient webSocketClient, ClientThread clientThread)
     {
         super(true);
         this.plugin = plugin;
         this.config = config;
         this.itemManager = itemManager;
         this.sessionManager = sessionManager;
+        this.webSocketClient = webSocketClient;
         this.clientThread = clientThread;
 
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -107,6 +118,23 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         // Add error panel (shown when no data)
         errorPanel.setContent("Splash Statistics", "Start splashing to see statistics.");
         add(errorPanel, BorderLayout.CENTER);
+
+        // Keep the resume-window countdown live even when no game ticks arrive
+        // (e.g. the player logged out — exactly when the resume window matters)
+        resumeCountdownTimer = new javax.swing.Timer(1000, e -> updateCurrentSessionState(plugin.getCurrentSession() != null && plugin.getCurrentSession().isActive()));
+        resumeCountdownTimer.start();
+    }
+
+    /**
+     * Stop the panel's Swing timers. Called when the plugin shuts down.
+     */
+    public void shutdown()
+    {
+        resumeCountdownTimer.stop();
+        if (syncRefreshTimer != null)
+        {
+            syncRefreshTimer.stop();
+        }
     }
 
     /**
@@ -124,6 +152,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             historyContainer.removeAll();
             historyBoxes.clear();
             lastHistorySize = 0;
+            currentContainer = null; // reassigned by buildPanels when the section is enabled
 
             // Rebuild panels with current config
             buildPanels();
@@ -149,6 +178,13 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         // Action bar with export buttons at top
         layoutPanel.add(buildActionBar());
         layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+
+        // Server sync section (setup link button)
+        if (config.enableServerSync())
+        {
+            layoutPanel.add(buildServerSyncPanel());
+            layoutPanel.add(javax.swing.Box.createVerticalStrut(10));
+        }
 
         // Only add panels if they are enabled in config
         if (config.showOverallStats())
@@ -217,6 +253,162 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         titlePanel.add(buttonPanel, BorderLayout.EAST);
         actionBar.add(titlePanel, BorderLayout.CENTER);
         return actionBar;
+    }
+
+    private JPanel buildServerSyncPanel()
+    {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        panel.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
+
+        JPanel inner = new JPanel(new BorderLayout());
+        inner.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        inner.setBorder(new EmptyBorder(8, 10, 8, 10));
+
+        JLabel sectionLabel = new JLabel("Server Sync");
+        sectionLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+        sectionLabel.setFont(FontManager.getRunescapeSmallFont());
+        inner.add(sectionLabel, BorderLayout.WEST);
+
+        JPanel rightPanel = new JPanel(new BorderLayout(5, 0));
+        rightPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+        JLabel statusLabel = new JLabel();
+        statusLabel.setFont(FontManager.getRunescapeSmallFont());
+        rightPanel.add(statusLabel, BorderLayout.WEST);
+
+        javax.swing.JButton actionButton = new javax.swing.JButton();
+        actionButton.setFocusPainted(false);
+        actionButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        rightPanel.add(actionButton, BorderLayout.EAST);
+
+        // Initial state
+        updateSyncPanelState(statusLabel, actionButton);
+
+        actionButton.addActionListener(e -> onSetupLinkButtonClicked(statusLabel, actionButton));
+
+        // Periodically update status label (replace any timer from a previous rebuild)
+        if (syncRefreshTimer != null)
+        {
+            syncRefreshTimer.stop();
+        }
+        syncRefreshTimer = new javax.swing.Timer(2000, e ->
+            SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton)));
+        syncRefreshTimer.start();
+
+        inner.add(rightPanel, BorderLayout.EAST);
+        panel.add(inner, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void updateSyncPanelState(JLabel statusLabel, javax.swing.JButton button)
+    {
+        if (webSocketClient.isAuthenticated())
+        {
+            statusLabel.setText("Connected");
+            statusLabel.setForeground(new java.awt.Color(0x43B581)); // green
+
+            // Do not show setup prompts while actively authenticated; only show
+            // a button when we already have a valid setup link to copy.
+            if (webSocketClient.isSetupLinkValid())
+            {
+                button.setText("Show Link");
+                button.setToolTipText("Copy setup link to clipboard");
+                button.setVisible(true);
+            }
+            else
+            {
+                button.setVisible(false);
+            }
+        }
+        else if (webSocketClient.isConnected())
+        {
+            statusLabel.setText("Connecting...");
+            statusLabel.setForeground(new java.awt.Color(0xFAA61A)); // yellow
+            button.setVisible(false);
+        }
+        else
+        {
+            statusLabel.setText("Disconnected");
+            statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+            button.setText("Generate Link");
+            button.setToolTipText("Connect and generate a setup link");
+            button.setVisible(true);
+        }
+    }
+
+    private void onSetupLinkButtonClicked(JLabel statusLabel, javax.swing.JButton button)
+    {
+        if (webSocketClient.isSetupLinkValid())
+        {
+            // Copy to clipboard and show popup
+            String link = webSocketClient.getSetupLink();
+            StringSelection selection = new StringSelection(link);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+            JOptionPane.showMessageDialog(this,
+                "Setup link copied to clipboard!\n\n" + link,
+                "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+        }
+        else
+        {
+            // Request a new link via re-auth (also connects if disconnected)
+            webSocketClient.requestSetupLink();
+            button.setText("Requesting...");
+            button.setEnabled(false);
+
+            // Poll up to 5 times (1 second apart) for the auth response
+            final int maxAttempts = 5;
+            final int[] attempt = {0};
+            javax.swing.Timer pollTimer = new javax.swing.Timer(1000, null);
+            pollTimer.addActionListener(ev -> {
+                attempt[0]++;
+                Boolean authResult = webSocketClient.getLastAuthSetupRequired();
+
+                if (webSocketClient.isSetupLinkValid())
+                {
+                    // Link received — copy to clipboard
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        String link = webSocketClient.getSetupLink();
+                        StringSelection sel = new StringSelection(link);
+                        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
+                        JOptionPane.showMessageDialog(this,
+                            "Setup link copied to clipboard!\n\n" + link,
+                            "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+                    });
+                }
+                else if (authResult != null && !authResult)
+                {
+                    // Auth succeeded but account is already set up
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        JOptionPane.showMessageDialog(this,
+                            "Your account is already set up!\n"
+                            + "You can log in on the web dashboard directly.",
+                            "Setup Link", JOptionPane.INFORMATION_MESSAGE);
+                    });
+                }
+                else if (attempt[0] >= maxAttempts)
+                {
+                    // Timed out waiting for a response
+                    pollTimer.stop();
+                    SwingUtilities.invokeLater(() -> {
+                        button.setEnabled(true);
+                        updateSyncPanelState(statusLabel, button);
+                        JOptionPane.showMessageDialog(this,
+                            "Could not generate a setup link.\n"
+                            + "Make sure Server Sync is enabled, you are logged in,\n"
+                            + "and the server is running.",
+                            "Setup Link", JOptionPane.WARNING_MESSAGE);
+                    });
+                }
+            });
+            pollTimer.start();
+        }
     }
 
     private JLabel createIconButton(ImageIcon icon, String tooltip)
@@ -315,7 +507,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     private JPanel buildCurrentSessionPanel(ItemManager itemManager)
     {
-        JPanel currentContainer = new JPanel();
+        currentContainer = new JPanel();
         currentContainer.setLayout(new BoxLayout(currentContainer, BoxLayout.Y_AXIS));
         currentContainer.setBackground(ColorScheme.DARKER_GRAY_COLOR);
         currentContainer.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
@@ -323,10 +515,16 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         JPanel currentTitlePanel = new JPanel(new BorderLayout());
         currentTitlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
         currentTitlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
-        JLabel currentTitle = new JLabel("Current Session");
-        currentTitle.setForeground(Color.ORANGE);
-        currentTitle.setFont(FontManager.getRunescapeBoldFont());
-        currentTitlePanel.add(currentTitle, BorderLayout.WEST);
+        currentTitleLabel = new JLabel("Current Session");
+        currentTitleLabel.setForeground(Color.ORANGE);
+        currentTitleLabel.setFont(FontManager.getRunescapeBoldFont());
+        currentTitlePanel.add(currentTitleLabel, BorderLayout.WEST);
+
+        // Resume-window countdown, shown while a finished session can still resume
+        resumeCountdownLabel.setForeground(Color.GRAY);
+        resumeCountdownLabel.setFont(FontManager.getRunescapeSmallFont());
+        resumeCountdownLabel.setVisible(false);
+        currentTitlePanel.add(resumeCountdownLabel, BorderLayout.EAST);
         currentContainer.add(currentTitlePanel);
 
         currentPanel.setLayout(new GridLayout(0, 1, 0, 4));
@@ -489,15 +687,21 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             }
 
             // Calculate hours remaining (assuming 1 cast per 3 seconds = 1200 casts/hour)
-            double hoursRemaining = remaining / 1200.0;
+            double hoursRemaining = (double) remaining / xyz.peppie.splashhelper.util.Constants.CASTS_PER_HOUR;
             overallHoursRemainingLabel.setText(String.format("%.1fh", hoursRemaining));
             overallHoursRemainingLabel.setForeground(Color.CYAN);
 
-            // Calculate potential XP (using current session spell XP if available)
+            // Calculate potential XP from the spell the remaining-casts cache
+            // was computed with, falling back to the selected spell.
             int potentialXp = 0;
-            if (hasActiveSession && currentSession != null && currentSession.getSpell() != null)
+            SplashSpell potentialXpSpell = plugin.getCachedProjectionSpell();
+            if (potentialXpSpell == null)
             {
-                potentialXp = (int) (remaining * currentSession.getSpell().getBaseXp());
+                potentialXpSpell = config.selectedSpell();
+            }
+            if (potentialXpSpell != null)
+            {
+                potentialXp = (int) Math.round(remaining * potentialXpSpell.getBaseXp());
             }
             overallPotentialXpLabel.setText(formatNumber(potentialXp));
             overallPotentialXpLabel.setForeground(Color.CYAN);
@@ -561,11 +765,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             }
 
             // Update current session display
+            updateCurrentSessionState(hasActiveSession);
+
             if (hasActiveSession && currentSession != null)
             {
-                currentPanel.setVisible(true);
-                supplyBox.setVisible(true);
-
                 playerLabel.setText(currentSession.getPlayerName() != null ? currentSession.getPlayerName() : "-");
 
                 if (currentSession.getSpell() != null)
@@ -619,34 +822,9 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                 highestPlayerCountLabel.setText(String.valueOf(currentSession.getHighestPlayerCount()));
                 highestPlayerCountLabel.setForeground(Color.CYAN);
             }
-            else
-            {
-                // No active session - reset current session to zeroed values
-                currentPanel.setVisible(true);
-                supplyBox.setVisible(true);
-
-                playerLabel.setText("-");
-                spellLabel.setText("-");
-                spellLabel.setForeground(Color.GRAY);
-                worldLabel.setText("-");
-                stickyLabel.setText("-");
-                stickyLabel.setForeground(Color.GRAY);
-                timeLabel.setText("0:00");
-                timeLabel.setForeground(Color.GRAY);
-                castsLabel.setText("0");
-                xpGainedLabel.setText("0");
-                xpHourLabel.setText("0/hr");
-                xpHourLabel.setForeground(Color.GRAY);
-                runeCostLabel.setText("0 gp");
-                runeCostLabel.setForeground(Color.GRAY);
-                playerCountLabel.setText("0");
-                playerCountLabel.setForeground(Color.GRAY);
-                highestPlayerCountLabel.setText("0");
-                highestPlayerCountLabel.setForeground(Color.GRAY);
-
-                // Show empty runes row
-                supplyBox.buildItems(new java.util.ArrayList<>(), 0);
-            }
+            // When inactive the labels keep the last session's data — it is
+            // either hidden entirely or collapsed behind the resume countdown,
+            // and re-expands with correct values if the session resumes.
 
             // Update session history
             updateHistoryDisplay(history);
@@ -654,6 +832,47 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             revalidate();
             repaint();
         });
+    }
+
+    /**
+     * Show the Current Session panel in one of three states:
+     * active session → fully expanded; finished but still inside the resume
+     * window → collapsed to a grayed title with a live countdown (data kept
+     * underneath so a resume re-expands seamlessly); finalized → hidden.
+     */
+    private void updateCurrentSessionState(boolean hasActiveSession)
+    {
+        if (currentContainer == null)
+        {
+            return;
+        }
+
+        if (hasActiveSession)
+        {
+            currentContainer.setVisible(true);
+            currentTitleLabel.setForeground(Color.ORANGE);
+            resumeCountdownLabel.setVisible(false);
+            currentPanel.setVisible(true);
+            supplyBox.setVisible(true);
+        }
+        else if (sessionManager.hasResumableSession())
+        {
+            long remainingMs = sessionManager.getResumableSessionRemainingMs();
+            long remainingSeconds = (remainingMs + 999) / 1000;
+            currentContainer.setVisible(true);
+            currentTitleLabel.setForeground(Color.GRAY);
+            resumeCountdownLabel.setText(String.format("resumes %d:%02d", remainingSeconds / 60, remainingSeconds % 60));
+            resumeCountdownLabel.setVisible(true);
+            currentPanel.setVisible(false);
+            supplyBox.setVisible(false);
+        }
+        else
+        {
+            currentContainer.setVisible(false);
+        }
+
+        currentContainer.revalidate();
+        currentContainer.repaint();
     }
 
     private String formatDuration(long seconds)

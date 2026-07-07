@@ -49,6 +49,28 @@ public interface SplashHelperConfig extends Config
 		return 15;
 	}
 
+	@Range(min = 1, max = 120)
+	@ConfigItem(
+		keyName = "timerWarningMinutes",
+		name = "Warning Threshold (minutes)",
+		description = "Timer text and screen tint turn orange when this many minutes remain. Clamped to the timer duration."
+	)
+	default int timerWarningMinutes()
+	{
+		return 5;
+	}
+
+	@Range(min = 1, max = 120)
+	@ConfigItem(
+		keyName = "timerCriticalMinutes",
+		name = "Critical Threshold (minutes)",
+		description = "Timer text and screen tint turn red when this many minutes remain. Clamped to the warning threshold."
+	)
+	default int timerCriticalMinutes()
+	{
+		return 2;
+	}
+
 	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show Timer Overlay",
@@ -147,26 +169,25 @@ public interface SplashHelperConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "useVisualNotification",
-		name = "Visual Notification",
-		description = "Use screen tint instead of sound for notifications",
+		keyName = "enableSoundNotification",
+		name = "Sound Notification",
+		description = "Play a notification sound (Windows toast + native sound)",
 		section = notificationSection
 	)
-	default boolean useVisualNotification()
+	default boolean enableSoundNotification()
 	{
-		return false;
+		return true;
 	}
 
-	@Alpha
 	@ConfigItem(
-		keyName = "visualNotificationColor",
-		name = "Visual Notification Color",
-		description = "Color of the screen tint for visual notifications",
+		keyName = "useVisualNotification",
+		name = "Visual Notification",
+		description = "Show a screen tint when the timer reaches the warning (orange) and critical (red) thresholds, and on notifications",
 		section = notificationSection
 	)
-	default Color visualNotificationColor()
+	default boolean enableVisualNotification()
 	{
-		return new Color(255, 0, 0, 80); // Semi-transparent red
+		return false;
 	}
 
 	@Range(min = 1, max = 30)
@@ -223,6 +244,18 @@ public interface SplashHelperConfig extends Config
 	default int playerCountRadius()
 	{
 		return 5;
+	}
+
+	@Range(min = 1, max = 10000)
+	@ConfigItem(
+		keyName = "maxStoredSessions",
+		name = "Sessions Kept On Disk",
+		description = "Maximum number of finished sessions kept in local history; older sessions are pruned. With Server Sync enabled the server retains the full history.",
+		section = statisticsSection
+	)
+	default int maxStoredSessions()
+	{
+		return 200;
 	}
 
 	@Range(min = 0, max = 600)
@@ -374,18 +407,17 @@ public interface SplashHelperConfig extends Config
 		return EnumSet.allOf(SessionStatField.class);
 	}
 
+	@Range(min = 0, max = 3600)
 	@ConfigItem(
-		keyName = "maxPlayerCountSamples",
-		name = "Max Player Count Samples",
-		description = "Maximum number of player count samples to store (prevents memory issues)"
+		keyName = "sessionResumeWindowSeconds",
+		name = "Session Resume Window (seconds)",
+		description = "How long after a session ends it can be resumed when the same player returns (e.g. after using dragon spear or the 6-hour logout). Set to 0 to disable.",
+		section = statisticsSection,
+		position = 12
 	)
-	@Range(
-		min = 10,
-		max = 1000
-	)
-	default int maxPlayerCountSamples()
+	default int sessionResumeWindowSeconds()
 	{
-		return 100;
+		return 600; // 10 minutes
 	}
 
 	@ConfigItem(
@@ -406,5 +438,46 @@ public interface SplashHelperConfig extends Config
 	default ModifierlessKeybind safetyModeHotkey()
 	{
 		return new ModifierlessKeybind(KeyEvent.VK_MULTIPLY, 0);
+	}
+
+	// ==================== Server Sync ====================
+
+	@ConfigSection(
+		name = "Server Sync",
+		description = "Sync live session data with a Splash Helper server via WebSocket",
+		position = 40,
+		closedByDefault = true
+	)
+	String serverSyncSection = "serverSync";
+
+	@ConfigItem(
+		keyName = "enableServerSync",
+		name = "Enable Server Sync",
+		description = "Connect to a third-party Splash Helper server and stream live session data. "
+			+ "This sends your account username and session statistics (spell used, world, magic XP, "
+			+ "rune usage and cost, spells cast, knight movements, nearby player counts and timestamps) "
+			+ "to the configured server. Leave disabled if you do not want any data sent externally.",
+		warning = "Enabling Server Sync connects to a third-party server (splasher.help by default) and "
+			+ "sends your account username and splash session statistics — including the spell used, world, "
+			+ "magic XP, rune usage and cost, spells cast, knight movements, nearby player counts and "
+			+ "timestamps. No data is sent while this is disabled. Are you sure you want to enable it?",
+		section = serverSyncSection,
+		position = 0
+	)
+	default boolean enableServerSync()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "serverUrl",
+		name = "Server URL",
+		description = "WebSocket URL of the Splash Helper server",
+		section = serverSyncSection,
+		position = 1
+	)
+	default String serverUrl()
+	{
+		return "wss://api.splasher.help";
 	}
 }

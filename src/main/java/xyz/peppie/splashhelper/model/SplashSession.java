@@ -18,9 +18,12 @@ public class SplashSession
 	private SplashSpell spell;
 	private int runeCostPerCast;
 	private final Instant startTime;
-	private final Instant logoutTime;
-	private final int world;
-	private final boolean stickyKnight;
+	@Setter
+	private Instant logoutTime;
+	@Setter
+	private int world;
+	@Setter
+	private boolean stickyKnight;
 
 	// Dynamic fields (updated during session)
 	@Setter
@@ -36,7 +39,11 @@ public class SplashSession
 
 	// Player tracking (transient - not persisted)
 	private transient final Set<String> pickpocketers = new HashSet<>();
-	private transient final List<Integer> playerCountSamples = new ArrayList<>();
+	// Running mean for player count: O(1) memory, exact average over any session length.
+	private transient long playerCountSum = 0;
+	private transient long playerCountSampleN = 0;
+	// Bounded, downsampled player-count-over-time series (persisted; used for server graphs)
+	private PlayerCountSeries playerCountSeries = new PlayerCountSeries();
 	@Setter
 	private int highestPlayerCount = 0;
 	
@@ -95,17 +102,6 @@ public class SplashSession
 		return (getMagicXpGained() * 3600.0) / seconds;
 	}
 
-	public int getRunesUsed()
-	{
-		return startingRuneCount - currentRuneCount;
-	}
-
-	public int getRemainingCasts()
-	{
-		// currentRuneCount is already the number of possible casts (from countLimitingRunes)
-		return currentRuneCount;
-	}
-
 	public void addPickpocketer(String playerName)
 	{
 		if (playerName != null && !playerName.isEmpty())
@@ -115,27 +111,22 @@ public class SplashSession
 		}
 	}
 
-	public int getPickpocketerCount()
+	public void addPlayerCountSample(int count)
 	{
-		return pickpocketerCount;
-	}
-
-	public void addPlayerCountSample(int count, int maxSamples)
-	{
-		playerCountSamples.add(count);
+		playerCountSampleN++;
+		playerCountSum += count;
 		if (count > highestPlayerCount)
 		{
 			highestPlayerCount = count;
 		}
-		
-		// Enforce maximum sample limit to prevent memory issues
-		while (playerCountSamples.size() > maxSamples)
+		averagePlayerCount = (int) Math.round((double) playerCountSum / playerCountSampleN);
+
+		if (playerCountSeries == null)
 		{
-			playerCountSamples.remove(0); // Remove oldest sample
+			// Sessions loaded from an older on-disk format have no series
+			playerCountSeries = new PlayerCountSeries();
 		}
-		
-		// Update average for persistence
-		averagePlayerCount = (int) Math.round(playerCountSamples.stream().mapToInt(Integer::intValue).average().orElse(0));
+		playerCountSeries.addSample(java.time.Duration.between(startTime, Instant.now()).getSeconds(), count);
 	}
 
 	public double getAveragePlayerCount()
@@ -194,9 +185,12 @@ public class SplashSession
 		return result;
 	}
 
-	public void finalizeSession()
+	/**
+	 * Un-finalize this session so it can be resumed after a brief interruption.
+	 */
+	public void resume()
 	{
-		this.endTime = Instant.now();
+		this.endTime = null;
 	}
 
 	public boolean isActive()

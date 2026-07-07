@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.config.ConfigManager;
 import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.util.Constants;
 import net.runelite.api.coords.WorldPoint;
 
 import java.time.Instant;
@@ -32,6 +33,9 @@ public class TileManager
 	@Inject
 	private SessionManager sessionManager;
 
+	@Inject
+	private NotificationService notificationService;
+
 	@Getter
 	private WorldPoint boundaryTile = null;
 
@@ -46,18 +50,24 @@ public class TileManager
 	private int movementCount = 0;
 	private Instant trackingStartTime = null;
 	@Getter
-	private double movementsPerMinute = 0.0;
+	private double movementsPerHour = 0.0;
 
 	// hasEscaped state machine
 	@Getter
 	private boolean hasEscaped = false;
 	private int boundaryTickCounter = 0;
-	private static final int BOUNDARY_DEBOUNCE_TICKS = 5;
 	private boolean boundaryNotified = false;
 
 	// Current target
 	@Getter
 	private Actor currentTarget = null;
+
+	// The exact knight NPC this splashing session was started on. Captured the
+	// first time a target is engaged and held until the target is cleared, so
+	// safety mode can restrict clicks to this knight only (and not a second
+	// knight dragged in by a griefer).
+	@Getter
+	private NPC sessionKnight = null;
 
 	/**
 	 * Set the boundary tile.
@@ -140,6 +150,17 @@ public class TileManager
 	 */
 	public void setCurrentTarget(Actor target)
 	{
+		if (target == null)
+		{
+			// Target cleared (knight died / session reset) releases the lock so a
+			// fresh session can lock onto whichever knight it starts on.
+			sessionKnight = null;
+		}
+		else if (sessionKnight == null && target instanceof NPC)
+		{
+			// Lock onto the first knight this session engages with.
+			sessionKnight = (NPC) target;
+		}
 		this.currentTarget = target;
 	}
 
@@ -151,7 +172,7 @@ public class TileManager
 		lastNpcPosition = null;
 		movementCount = 0;
 		trackingStartTime = null;
-		movementsPerMinute = 0.0;
+		movementsPerHour = 0.0;
 	}
 
 	/**
@@ -193,22 +214,17 @@ public class TileManager
 						lastNpcPosition = currentPosition;
 					}
 					
-					// Calculate movements per minute
+					// Calculate movements per hour
 					if (trackingStartTime != null)
 					{
 						java.time.Duration trackingDuration = java.time.Duration.between(trackingStartTime, Instant.now());
-						double minutes = trackingDuration.toMillis() / 60000.0;
-						
-						if (minutes > 0)
+						double hours = trackingDuration.toMillis() / 3_600_000.0;
+
+						if (hours > 0)
 						{
-							movementsPerMinute = movementCount / minutes;
+							movementsPerHour = movementCount / hours;
 						}
 					}
-				}
-				// Update last position if NPC is on either tile
-				if (onTile1 || onTile2)
-				{
-					lastNpcPosition = currentPosition;
 				}
 			}
 		}
@@ -261,6 +277,7 @@ public class TileManager
 						hasEscaped = false;
 						boundaryNotified = false;
 						boundaryTickCounter = 0;
+						notificationService.unmuteNotifications();
 					}
 				}
 				else
@@ -270,7 +287,7 @@ public class TileManager
 					{
 						boundaryTickCounter++;
 						// After 5 ticks on a non-valid tile, allow re-notification
-						if (boundaryTickCounter >= BOUNDARY_DEBOUNCE_TICKS)
+						if (boundaryTickCounter >= Constants.BOUNDARY_DEBOUNCE_TICKS)
 						{
 							boundaryNotified = false;
 						}
@@ -290,6 +307,7 @@ public class TileManager
 		hasEscaped = false;
 		boundaryNotified = false;
 		boundaryTickCounter = 0;
+		notificationService.unmuteNotifications();
 	}
 
 	/**
@@ -299,13 +317,15 @@ public class TileManager
 	{
 		// Keep persisted tiles (boundaryTile, knightTile1, knightTile2) — they are restored on startup
 		currentTarget = null;
+		sessionKnight = null;
 		boundaryNotified = false;
 		lastNpcPosition = null;
 		movementCount = 0;
 		trackingStartTime = null;
-		movementsPerMinute = 0.0;
+		movementsPerHour = 0.0;
 		hasEscaped = false;
 		boundaryTickCounter = 0;
+		notificationService.unmuteNotifications();
 	}
 
 	/**
