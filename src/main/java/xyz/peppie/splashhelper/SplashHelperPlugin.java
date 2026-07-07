@@ -4,7 +4,10 @@ import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.inject.Inject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -15,20 +18,21 @@ import net.runelite.api.GameState;
 import net.runelite.api.Menu;
 import net.runelite.api.MenuAction;
 import net.runelite.api.MenuEntry;
+import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.Tile;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Item;
-import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
-import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
@@ -56,6 +60,7 @@ import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
 import xyz.peppie.splashhelper.overlays.VisualNotificationOverlay;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
+import xyz.peppie.splashhelper.model.TimerAlertLevel;
 import xyz.peppie.splashhelper.service.KnightDetector;
 import xyz.peppie.splashhelper.service.NotificationService;
 import xyz.peppie.splashhelper.service.PlayerTracker;
@@ -161,6 +166,7 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private boolean hasBadMagicBonus = false;
 	private Instant lastBonusWarning = null;
+	private Instant lastSafetyBlockMessage = null;
 
 	// Session delegation methods
 	public SplashSession getCurrentSession()
@@ -202,16 +208,6 @@ public class SplashHelperPlugin extends Plugin
 		return tileManager.isHasEscaped();
 	}
 
-	public double getMovementsPerMinute()
-	{
-		return tileManager.getMovementsPerMinute();
-	}
-
-	public Actor getCurrentTarget()
-	{
-		return tileManager.getCurrentTarget();
-	}
-
 	/**
 	 * Trigger visual notification overlay.
 	 * Called by NotificationService when visual notifications are enabled.
@@ -228,19 +224,15 @@ public class SplashHelperPlugin extends Plugin
 	// Cached values for UI (updated on client thread)
 	@Getter
 	private volatile int cachedRemainingCasts = 0;
+	// Spell the remaining-casts cache was computed with (drives Potential XP)
+	@Getter
+	private volatile SplashSpell cachedProjectionSpell = null;
 	@Getter
 	private volatile java.util.Set<Integer> cachedInfiniteRunes = new java.util.HashSet<>();
 	@Getter
 	private volatile java.util.List<int[]> cachedActualRuneUsage = new java.util.ArrayList<>();
 	@Getter
 	private volatile long cachedRuneCost = 0;
-
-	// Player tracking delegated to PlayerTracker service
-	public int getCurrentPickpocketerCount()
-	{
-		SplashSession session = sessionManager.getCurrentSession();
-		return session != null ? session.getPickpocketerCount() : 0;
-	}
 
 	// Visual notification state
 	@Getter
@@ -267,9 +259,10 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.add(magicBonusWarningOverlay);
 		overlayManager.add(safetyModeOverlay);
 
-		// Register key listener for safety mode
+		// Register key listeners: safety-mode hotkey + combat-idle-timer mirroring
 		keyManager.registerKeyListener(safetyModeKeyListener);
-		
+		keyManager.registerKeyListener(timerResetKeyListener);
+
 		// Load safety mode state from config
 		safetyModeEnabled = config.safetyModeEnabled();
 
@@ -334,11 +327,17 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.remove(magicBonusWarningOverlay);
 		overlayManager.remove(safetyModeOverlay);
 
-		// Unregister key listener
+		// Unregister key listeners
 		keyManager.unregisterKeyListener(safetyModeKeyListener);
+		keyManager.unregisterKeyListener(timerResetKeyListener);
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
+		}
+		if (statisticsPanel != null)
+		{
+			statisticsPanel.shutdown();
+			statisticsPanel = null;
 		}
 		
 		// Finalize any active session
@@ -549,7 +548,6 @@ public class SplashHelperPlugin extends Plugin
 	public void onGameTick(GameTick event)
 	{
 		attemptPendingServerConnection();
-		updateVisualNotificationState();
 		checkTimerExpiration();
 		checkHpThreshold();
 
@@ -568,20 +566,6 @@ public class SplashHelperPlugin extends Plugin
 		tileManager.trackKnightMovement();
 
 		updateSessionStatistics();
-	}
-
-	@Subscribe
-	public void onInteractingChanged(InteractingChanged event)
-	{
-		if (event.getTarget() != null && event.getTarget().getName() != null) 
-		{
-			String sourceName = event.getSource().getName();
-			String playerName = client.getLocalPlayer().getName();
-			if (sourceName != null && sourceName.equalsIgnoreCase(playerName)) {
-				// Session start moved to onAnimationChanged to detect actual spell casting
-				// This works for both normal combat and safe-spotting scenarios
-			}
-		}
 	}
 
 	@Subscribe
@@ -886,10 +870,21 @@ public class SplashHelperPlugin extends Plugin
 		if (safetyModeEnabled && shouldBlockAction(event))
 		{
 			event.consume();
-			client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
-				"<col=ff0000>Safety Mode: This action is blocked while safety mode is enabled.</col>", null);
+			// Broad blocking can fire on rapid misclicks, so throttle the notice.
+			Instant now = Instant.now();
+			if (lastSafetyBlockMessage == null || Duration.between(lastSafetyBlockMessage, now).getSeconds() >= 2)
+			{
+				client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+					"<col=ff0000>Safety Mode: This action is blocked while safety mode is enabled.</col>", null);
+				lastSafetyBlockMessage = now;
+			}
 			return;
 		}
+
+		// Any un-blocked left/right click resets OSRS's combat idle timer, so
+		// mirror it on the splash timer (only while it is running; a stopped
+		// timer is only restarted by clicking the knight, handled below).
+		resetTimer();
 
 		// When hasEscaped is true and player interacts, mute notifications until knight returns
 		if (tileManager.isHasEscaped() && !notificationService.areNotificationsMuted())
@@ -940,6 +935,14 @@ public class SplashHelperPlugin extends Plugin
 					return;
 				}
 
+				// Track the knight this session is engaged with so its type
+				// (sticky/normal) can be detected from the very first click.
+				Actor clickedNpc = event.getMenuEntry().getNpc();
+				if (clickedNpc != null)
+				{
+					tileManager.setCurrentTarget(clickedNpc);
+				}
+
 				// Restart timer on user click (works even after timer has expired)
 				startTimer();
 				log.debug("Timer restarted by clicking knight");
@@ -953,9 +956,9 @@ public class SplashHelperPlugin extends Plugin
 		timerEnd = Instant.now().plus(Duration.ofMinutes(durationMinutes));
 		hasNotified = false;
 		showVisualNotification = false;
-		
+
 		log.debug("Timer started for {} minutes", durationMinutes);
-		
+
 		if (config.enableWelcomeMessage())
 		{
 			String timerMsg = String.format("Timer started: %d minutes", durationMinutes);
@@ -966,12 +969,63 @@ public class SplashHelperPlugin extends Plugin
 				lastTimerChatTick = currentTick;
 			}
 		}
-		
+
 		// Start session when timer starts (player engaged with target)
 		if (config.enableStatistics() && !sessionManager.hasActiveSession())
 		{
 			startSession(config.selectedSpell());
 		}
+	}
+
+	/**
+	 * Silently extend a running timer back to its full duration.
+	 * Mirrors how OSRS's combat idle timer is reset by clicks, typing, and
+	 * keyboard camera movement — no chat message, no session churn. Does
+	 * nothing when the timer is not running (a stopped combat timer can only
+	 * be restarted by re-engaging the target).
+	 */
+	private void resetTimer()
+	{
+		if (timerEnd == null)
+		{
+			return;
+		}
+		timerEnd = Instant.now().plus(Duration.ofMinutes(config.timerDuration()));
+		hasNotified = false;
+		showVisualNotification = false;
+	}
+
+	/**
+	 * Alert level of the running timer against the configured thresholds.
+	 * Thresholds are clamped so that critical <= warning <= timer duration.
+	 */
+	public TimerAlertLevel getTimerAlertLevel()
+	{
+		if (timerEnd == null)
+		{
+			// After expiry the timer is cleared; the lingering "expired" alert
+			// is carried by showVisualNotification until the user interacts.
+			return TimerAlertLevel.NONE;
+		}
+
+		long secondsLeft = Duration.between(Instant.now(), timerEnd).getSeconds();
+		if (secondsLeft <= 0)
+		{
+			return TimerAlertLevel.EXPIRED;
+		}
+
+		int warningMinutes = Math.min(config.timerWarningMinutes(), config.timerDuration());
+		int criticalMinutes = Math.min(config.timerCriticalMinutes(), warningMinutes);
+
+		if (secondsLeft <= criticalMinutes * 60L)
+		{
+			return TimerAlertLevel.CRITICAL;
+		}
+		if (secondsLeft <= warningMinutes * 60L)
+		{
+			return TimerAlertLevel.WARNING;
+		}
+		return TimerAlertLevel.NORMAL;
 	}
 
 	/**
@@ -1009,27 +1063,17 @@ public class SplashHelperPlugin extends Plugin
 			return false;
 		}
 
-		// Get magic attack bonus directly from client
-		int magicAttackBonus = client.getBoostedSkillLevel(Skill.MAGIC);
-		
-		// Actually we need the equipment bonus, not skill level
-		// Use the player's combat stats - magic attack is stored in the player's stats
-		// For now, we'll check equipment manually
-		
-		// Get equipment container
-		ItemContainer equipment = client.getItemContainer(InterfaceID.INVENTORY);
+		ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
 		if (equipment == null)
 		{
 			return false;
 		}
 
-		magicAttackBonus = 0;
+		int magicAttackBonus = 0;
 
 		// Sum up magic attack bonus from all equipment slots
-		Item[] items = equipment.getItems();
-		for (int i = 0; i < items.length; i++)
+		for (Item item : equipment.getItems())
 		{
-			Item item = items[i];
 			if (item != null && item.getId() > 0)
 			{
 				ItemStats itemStats = itemManager.getItemStats(item.getId());
@@ -1063,8 +1107,13 @@ public class SplashHelperPlugin extends Plugin
 
 		sessionManager.startSession(playerName, spell, timerEnd, world, stickyKnight);
 
+		// Snapshot the cast projection immediately so the statistics panel has
+		// meaningful values from the very first tick of the session.
+		cachedRemainingCasts = getRemainingCastsForCurrentSpell();
+		cachedProjectionSpell = getCurrentSpell();
+
 		lastStatsSample = Instant.now();
-		
+
 		log.debug("Splash session started for {} using {}", playerName, spell);
 	}
 
@@ -1208,17 +1257,19 @@ public class SplashHelperPlugin extends Plugin
 					if (configuredNpc != null && !configuredNpc.isEmpty() &&
 						targetName != null && targetName.equalsIgnoreCase(configuredNpc))
 					{
+						// Track the knight being cast at on every cast (not just when a
+						// session starts) so its type (sticky/normal) is always known.
+						tileManager.setCurrentTarget(interactingTarget);
+
 						// Start timer if not already running (first interaction only, not after expiry)
 						if (timerEnd == null && !hasNotified)
 						{
-							tileManager.setCurrentTarget(interactingTarget);
 							startTimer();
 							log.debug("Timer and session started by detecting spell animation on {} (animation: {})", targetName, animationId);
 						}
 						// Start a new session if previous one timed out but timer is still running
 						else if (!sessionManager.hasActiveSession() && config.enableStatistics())
 						{
-							tileManager.setCurrentTarget(interactingTarget);
 							startSession(config.selectedSpell());
 							log.debug("New session started (timer still active) for {} (animation: {})", targetName, animationId);
 						}
@@ -1234,7 +1285,7 @@ public class SplashHelperPlugin extends Plugin
 			int animationId = player.getAnimation();
 			
 			// Pickpocket animation ID
-			if (animationId == 881)
+			if (animationId == Constants.ANIMATION_PICKPOCKET)
 			{
 				// Check if they're near the knight
 				if (tileManager.getCurrentTarget() != null)
@@ -1254,15 +1305,6 @@ public class SplashHelperPlugin extends Plugin
 				}
 			}
 		}
-	}
-
-	/**
-	 * Update visual notification state when timer expires.
-	 */
-	private void updateVisualNotificationState()
-	{
-		// Visual notification is cleared when the user interacts (startTimer resets it)
-		// No duration-based timeout needed
 	}
 
 	/**
@@ -1320,10 +1362,19 @@ public class SplashHelperPlugin extends Plugin
 				return;
 			}
 			
-			// Update cached values on client thread for UI access
-			cachedRemainingCasts = getRemainingCastsForCurrentSpell();
+			// Update cached values on client thread for UI access. Remaining
+			// casts (and the Hours Remaining / Potential XP values derived from
+			// it) always reflect the live value during a session; when idle,
+			// the last meaningful value is retained instead of snapping to 0
+			// (e.g. when the configured spell doesn't match carried runes).
+			int computedRemaining = getRemainingCastsForCurrentSpell();
+			if (sessionManager.hasActiveSession() || computedRemaining > 0)
+			{
+				cachedRemainingCasts = computedRemaining;
+				cachedProjectionSpell = getCurrentSpell();
+			}
 			cachedInfiniteRunes = getInfiniteRunesFromEquipment();
-			
+
 			Instant now = Instant.now();
 			if (sessionManager.hasActiveSession())
 			{
@@ -1366,82 +1417,190 @@ public class SplashHelperPlugin extends Plugin
 
 	/**
 	 * Check if an action should be blocked in safety mode.
+	 *
+	 * Safety mode locks the player into the splash spot, so it works as an
+	 * allowlist: everything is blocked except the few interactions that cannot
+	 * move the player, change equipment/stats or otherwise interrupt the
+	 * session. This blocks walking (clicking the ground), clicking objects
+	 * (ladders, doors, bank stalls, deposit boxes, ...), interacting with NPCs,
+	 * player options and chat-box menus (following, trading, reporting, ...),
+	 * casting spells from the spellbook (teleports, ...), equipping items,
+	 * changing combat options, and opening interfaces such as the POH options
+	 * or rune pouch. Only Examine, Cancel, selecting an item with Use, and
+	 * switching sidebar tabs remain available (so items can still be
+	 * examined, menus closed, an item picked up for use, and the interface
+	 * panel switched); actually applying a selected item to another
+	 * item/object/NPC/player/ground item, and switching to the Grouping tab
+	 * (chat channel / your clan / view another clan / grouping) specifically,
+	 * stay blocked. This plugin's own right-click entries also remain
+	 * available. Continuous autocast splashing is unaffected because it does
+	 * not fire menu clicks.
 	 */
 	private boolean shouldBlockAction(MenuOptionClicked event)
 	{
-		String option = event.getMenuOption();
-		
-		// Allowed actions that reset timer - return false (not blocked)
-		if (isAllowedAction(event))
-		{
-			// Reset splash timer for allowed actions (works even after timer has expired)
-			startTimer();
-			log.debug("Timer restarted by allowed action: {}", option);
-			return false;
-		}
-		
-		// Block all other actions
-		return true;
+		return !isAllowedInSafetyMode(event);
 	}
 
 	/**
-	 * Check if an action is allowed in safety mode.
+	 * The short allowlist of interactions permitted while safety mode is on.
+	 * See {@link #shouldBlockAction}.
 	 */
-	private boolean isAllowedAction(MenuOptionClicked event)
+	private boolean isAllowedInSafetyMode(MenuOptionClicked event)
 	{
-		String option = event.getMenuOption();
 		MenuAction action = event.getMenuAction();
-		
-		// Allow clicking the knight (NPC interactions)
-		if (action == MenuAction.NPC_FIRST_OPTION ||
-			action == MenuAction.NPC_SECOND_OPTION ||
-			action == MenuAction.NPC_THIRD_OPTION ||
-			action == MenuAction.NPC_FOURTH_OPTION ||
-			action == MenuAction.NPC_FIFTH_OPTION)
+
+		// This plugin's own (and other plugins'/overlays') right-click entries,
+		// which are dispatched via their own onClick handlers.
+		if (action != null && action.name().startsWith("RUNELITE"))
 		{
-			String targetName = cleanNpcName(event.getMenuTarget());
-			String configuredNpc = config.targetNpc().getNpcName();
-			if (configuredNpc != null && !configuredNpc.isEmpty() &&
-				targetName != null && targetName.equalsIgnoreCase(configuredNpc))
+			return true;
+		}
+
+		// Closing/cancelling an open right-click menu.
+		if (action == MenuAction.CANCEL)
+		{
+			return true;
+		}
+
+		// Harmless options are always allowed: for items this leaves
+		// Use/Examine/Cancel and blocks equipping, unequipping, dropping, etc.
+		String option = event.getMenuOption();
+		String lower = option == null ? "" : option.toLowerCase();
+		if (lower.equals("examine") || lower.equals("cancel"))
+		{
+			return true;
+		}
+		// "Use" itself only selects the item (harmless); applying it to another
+		// item, an object, an NPC, a player or a ground item is a distinct menu
+		// action and stays blocked, since that's where the actual effect happens.
+		if (lower.equals("use") && !isUseOnTargetAction(action))
+		{
+			return true;
+		}
+
+		// Attacking/casting at a knight is allowed only for the exact NPC this
+		// session was started on. This stops a griefer's second knight — which
+		// produces a duplicate "Attack Knight of Ardougne" entry the splasher
+		// can't tell apart — from being clicked by mistake.
+		NPC clickedNpc = event.getMenuEntry().getNpc();
+		if (clickedNpc != null)
+		{
+			NPC sessionKnight = tileManager.getSessionKnight();
+			return sessionKnight != null
+				&& clickedNpc.getIndex() == sessionKnight.getIndex();
+		}
+
+		// Switching between sidebar tabs (inventory, equipment, prayer, magic,
+		// stats, quests, combat, settings, emotes, music, logout, ...) is
+		// harmless on its own and stays allowed; only the Grouping tab (chat
+		// channel / your clan / view another clan / grouping) stays blocked,
+		// since it opens social features that could distract from splashing.
+		Widget widget = event.getMenuEntry().getWidget();
+		if (widget != null)
+		{
+			int widgetId = widget.getId();
+			if (GROUPING_TAB_WIDGET_IDS.contains(widgetId))
+			{
+				return false;
+			}
+			if (SIDEBAR_TAB_WIDGET_IDS.contains(widgetId))
 			{
 				return true;
 			}
 		}
-		
-		// Allow unequipping items from equipment menu
-		if (action == MenuAction.CC_OP && option != null && option.equalsIgnoreCase("Remove"))
-		{
-			return true;
-		}
-		
-		// Allow clicking "use" menu option
-		if (option != null && option.equalsIgnoreCase("Use"))
-		{
-			return true;
-		}
-		
-		// Allow clicking stackable items in inventory (but only if they're actually stackable)
-		if (action == MenuAction.CC_OP)
-		{
-			ItemContainer inventory = client.getItemContainer(InterfaceID.INVENTORY);
-			if (inventory != null)
-			{
-				Item item = inventory.getItem(event.getParam0());
-				if (item != null)
-				{
-					ItemComposition itemDef = client.getItemDefinition(item.getId());
-					if (itemDef != null && itemDef.isStackable())
-					{
-						return true;
-					}
-				}
-			}
-			// If it's an inventory item action but not stackable, it's blocked
-			// Don't return false here, let the method continue to check other conditions
-		}
-		
-		// Block all other actions
+
 		return false;
+	}
+
+	/**
+	 * Widget IDs for the sidebar tab-switch buttons ("stones" and their icon
+	 * overlays), across the fixed, resizable-modern and resizable-classic
+	 * layouts. Excludes the Grouping tab (slot 7); see
+	 * {@link #GROUPING_TAB_WIDGET_IDS}.
+	 */
+	private static final Set<Integer> SIDEBAR_TAB_WIDGET_IDS = new HashSet<>(Arrays.asList(
+		// Fixed viewport
+		InterfaceID.Toplevel.STONE0, InterfaceID.Toplevel.STONE1, InterfaceID.Toplevel.STONE2,
+		InterfaceID.Toplevel.STONE3, InterfaceID.Toplevel.STONE4, InterfaceID.Toplevel.STONE5,
+		InterfaceID.Toplevel.STONE6, InterfaceID.Toplevel.STONE8, InterfaceID.Toplevel.STONE9,
+		InterfaceID.Toplevel.STONE10, InterfaceID.Toplevel.STONE11, InterfaceID.Toplevel.STONE12,
+		InterfaceID.Toplevel.STONE13,
+		InterfaceID.Toplevel.ICON0, InterfaceID.Toplevel.ICON1, InterfaceID.Toplevel.ICON2,
+		InterfaceID.Toplevel.ICON3, InterfaceID.Toplevel.ICON4, InterfaceID.Toplevel.ICON5,
+		InterfaceID.Toplevel.ICON6, InterfaceID.Toplevel.ICON8, InterfaceID.Toplevel.ICON9,
+		InterfaceID.Toplevel.ICON10, InterfaceID.Toplevel.ICON11, InterfaceID.Toplevel.ICON12,
+		InterfaceID.Toplevel.ICON13,
+
+		// Resizable (modern) viewport
+		InterfaceID.ToplevelOsrsStretch.STONE0, InterfaceID.ToplevelOsrsStretch.STONE1,
+		InterfaceID.ToplevelOsrsStretch.STONE2, InterfaceID.ToplevelOsrsStretch.STONE3,
+		InterfaceID.ToplevelOsrsStretch.STONE4, InterfaceID.ToplevelOsrsStretch.STONE5,
+		InterfaceID.ToplevelOsrsStretch.STONE6, InterfaceID.ToplevelOsrsStretch.STONE8,
+		InterfaceID.ToplevelOsrsStretch.STONE9, InterfaceID.ToplevelOsrsStretch.STONE10,
+		InterfaceID.ToplevelOsrsStretch.STONE11, InterfaceID.ToplevelOsrsStretch.STONE12,
+		InterfaceID.ToplevelOsrsStretch.STONE13,
+		InterfaceID.ToplevelOsrsStretch.ICON0, InterfaceID.ToplevelOsrsStretch.ICON1,
+		InterfaceID.ToplevelOsrsStretch.ICON2, InterfaceID.ToplevelOsrsStretch.ICON3,
+		InterfaceID.ToplevelOsrsStretch.ICON4, InterfaceID.ToplevelOsrsStretch.ICON5,
+		InterfaceID.ToplevelOsrsStretch.ICON6, InterfaceID.ToplevelOsrsStretch.ICON8,
+		InterfaceID.ToplevelOsrsStretch.ICON9, InterfaceID.ToplevelOsrsStretch.ICON10,
+		InterfaceID.ToplevelOsrsStretch.ICON11, InterfaceID.ToplevelOsrsStretch.ICON12,
+		InterfaceID.ToplevelOsrsStretch.ICON13,
+
+		// Resizable (classic / bottom-line) viewport
+		InterfaceID.ToplevelPreEoc.STONE0, InterfaceID.ToplevelPreEoc.STONE1,
+		InterfaceID.ToplevelPreEoc.STONE2, InterfaceID.ToplevelPreEoc.STONE3,
+		InterfaceID.ToplevelPreEoc.STONE4, InterfaceID.ToplevelPreEoc.STONE5,
+		InterfaceID.ToplevelPreEoc.STONE6, InterfaceID.ToplevelPreEoc.STONE8,
+		InterfaceID.ToplevelPreEoc.STONE9, InterfaceID.ToplevelPreEoc.STONE10,
+		InterfaceID.ToplevelPreEoc.STONE11, InterfaceID.ToplevelPreEoc.STONE12,
+		InterfaceID.ToplevelPreEoc.STONE13,
+		InterfaceID.ToplevelPreEoc.ICON0, InterfaceID.ToplevelPreEoc.ICON1,
+		InterfaceID.ToplevelPreEoc.ICON2, InterfaceID.ToplevelPreEoc.ICON3,
+		InterfaceID.ToplevelPreEoc.ICON4, InterfaceID.ToplevelPreEoc.ICON5,
+		InterfaceID.ToplevelPreEoc.ICON6, InterfaceID.ToplevelPreEoc.ICON8,
+		InterfaceID.ToplevelPreEoc.ICON9, InterfaceID.ToplevelPreEoc.ICON10,
+		InterfaceID.ToplevelPreEoc.ICON11, InterfaceID.ToplevelPreEoc.ICON12,
+		InterfaceID.ToplevelPreEoc.ICON13
+	));
+
+	/**
+	 * Widget IDs for the Grouping tab (slot 7 — chat channel / your clan /
+	 * view another clan / grouping), across all three layouts. Stays blocked
+	 * in safety mode even though other sidebar tabs are allowed.
+	 */
+	private static final Set<Integer> GROUPING_TAB_WIDGET_IDS = new HashSet<>(Arrays.asList(
+		InterfaceID.Toplevel.STONE7, InterfaceID.Toplevel.ICON7,
+		InterfaceID.ToplevelOsrsStretch.STONE7, InterfaceID.ToplevelOsrsStretch.ICON7,
+		InterfaceID.ToplevelPreEoc.STONE7, InterfaceID.ToplevelPreEoc.ICON7
+	));
+
+	/**
+	 * True for the menu actions fired when an already-selected "Use" item is
+	 * applied to a target (another item, a game object, an NPC, a player or a
+	 * ground item), as opposed to {@link MenuAction#WIDGET_TARGET} which just
+	 * selects the item and does nothing to the world yet.
+	 */
+	@SuppressWarnings("deprecation")
+	private boolean isUseOnTargetAction(MenuAction action)
+	{
+		switch (action)
+		{
+			case WIDGET_TARGET_ON_WIDGET:
+			case WIDGET_TARGET_ON_GAME_OBJECT:
+			case WIDGET_TARGET_ON_NPC:
+			case WIDGET_TARGET_ON_PLAYER:
+			case WIDGET_TARGET_ON_GROUND_ITEM:
+			case ITEM_USE_ON_ITEM:
+			case WIDGET_USE_ON_ITEM:
+			case ITEM_USE_ON_GAME_OBJECT:
+			case ITEM_USE_ON_NPC:
+			case ITEM_USE_ON_PLAYER:
+			case ITEM_USE_ON_GROUND_ITEM:
+				return true;
+			default:
+				return false;
+		}
 	}
 
 	/**
@@ -1486,4 +1645,35 @@ public class SplashHelperPlugin extends Plugin
 		}
 	};
 
-	}
+	/**
+	 * Global key listener that mirrors OSRS's combat idle timer: typing and
+	 * keyboard camera movement (arrow keys) reset it, so they reset the splash
+	 * timer too. Observation only — events are never consumed or synthesized.
+	 */
+	private final KeyListener timerResetKeyListener = new KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			// The safety-mode hotkey is consumed by safetyModeKeyListener and
+			// never reaches the game, so it must not reset the timer.
+			if (config.safetyModeHotkey().matches(e))
+			{
+				return;
+			}
+			// resetTimer() no-ops when the timer is not running, so idle
+			// typing (e.g. in the bank) never starts a timer or session.
+			clientThread.invokeLater(SplashHelperPlugin.this::resetTimer);
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+}

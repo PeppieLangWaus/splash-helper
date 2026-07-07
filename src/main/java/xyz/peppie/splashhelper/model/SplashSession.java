@@ -42,6 +42,8 @@ public class SplashSession
 	// Running mean for player count: O(1) memory, exact average over any session length.
 	private transient long playerCountSum = 0;
 	private transient long playerCountSampleN = 0;
+	// Bounded, downsampled player-count-over-time series (persisted; used for server graphs)
+	private PlayerCountSeries playerCountSeries = new PlayerCountSeries();
 	@Setter
 	private int highestPlayerCount = 0;
 	
@@ -100,17 +102,6 @@ public class SplashSession
 		return (getMagicXpGained() * 3600.0) / seconds;
 	}
 
-	public int getRunesUsed()
-	{
-		return startingRuneCount - currentRuneCount;
-	}
-
-	public int getRemainingCasts()
-	{
-		// currentRuneCount is already the number of possible casts (from countLimitingRunes)
-		return currentRuneCount;
-	}
-
 	public void addPickpocketer(String playerName)
 	{
 		if (playerName != null && !playerName.isEmpty())
@@ -134,6 +125,13 @@ public class SplashSession
 			highestPlayerCount = count;
 		}
 		averagePlayerCount = (int) Math.round((double) playerCountSum / playerCountSampleN);
+
+		if (playerCountSeries == null)
+		{
+			// Sessions loaded from an older on-disk format have no series
+			playerCountSeries = new PlayerCountSeries();
+		}
+		playerCountSeries.addSample(java.time.Duration.between(startTime, Instant.now()).getSeconds(), count);
 	}
 
 	public double getAveragePlayerCount()
@@ -198,11 +196,6 @@ public class SplashSession
 	public void resume()
 	{
 		this.endTime = null;
-	}
-
-	public void finalizeSession()
-	{
-		this.endTime = Instant.now();
 	}
 
 	public boolean isActive()
