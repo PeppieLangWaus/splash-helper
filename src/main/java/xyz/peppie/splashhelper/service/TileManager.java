@@ -226,11 +226,6 @@ public class TileManager
 						}
 					}
 				}
-				// Update last position if NPC is on either tile
-				if (onTile1 || onTile2)
-				{
-					lastNpcPosition = currentPosition;
-				}
 			}
 		}
 	}

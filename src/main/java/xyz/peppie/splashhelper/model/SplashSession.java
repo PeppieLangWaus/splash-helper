@@ -111,11 +111,6 @@ public class SplashSession
 		}
 	}
 
-	public int getPickpocketerCount()
-	{
-		return pickpocketerCount;
-	}
-
 	public void addPlayerCountSample(int count)
 	{
 		playerCountSampleN++;

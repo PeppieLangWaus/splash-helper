@@ -622,128 +622,55 @@ public class SplashHelperPlugin extends Plugin
 			}
 		}
 		
-		// Add "Knight Boundary" submenu to tile right-click menu
-		
-		// Find the first Walk menu entry to get tile coordinates
+		// Add the tile submenus to the first Walk menu entry (to get tile coordinates)
 		for (MenuEntry entry : entries)
 		{
 			if (entry.getType() == MenuAction.WALK)
 			{
-				// Create main "Knight Boundary" menu entry
-				MenuEntry boundaryMenu = client.createMenuEntry(1)
-					.setOption("Knight Boundary")
-					.setTarget("")
-					.setType(MenuAction.RUNELITE);
-				
-				// Create submenu
-				Menu submenu = boundaryMenu.createSubMenu();
-				
-				// Add Set/Unset option to submenu
-				if (tileManager.getBoundaryTile() == null)
-				{
-					submenu.createMenuEntry(-1)
-						.setOption("Set")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onBoundarySetClick);
-				}
-				else
-				{
-					submenu.createMenuEntry(-1)
-						.setOption("Unset")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onBoundaryUnsetClick);
-				}
-				
-				// Add Color option to submenu
-				submenu.createMenuEntry(-1)
-					.setOption("Color")
-					.setType(MenuAction.RUNELITE)
-					.setParam0(entry.getParam0())
-					.setParam1(entry.getParam1())
-					.onClick(this::onBoundaryColorClick);
-				
-				// Create main "Knight Tile 1" menu entry
-				MenuEntry tile1Menu = client.createMenuEntry(2)
-					.setOption("Knight Tile 1")
-					.setTarget("")
-					.setType(MenuAction.RUNELITE);
-				
-				// Create submenu for Knight Tile 1
-				Menu submenu1 = tile1Menu.createSubMenu();
-				
-				// Add Set/Unset option to submenu
-				if (tileManager.getKnightTile1() == null)
-				{
-					submenu1.createMenuEntry(-1)
-						.setOption("Set")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onKnightTile1SetClick);
-				}
-				else
-				{
-					submenu1.createMenuEntry(-1)
-						.setOption("Unset")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onKnightTile1UnsetClick);
-				}
-				
-				// Add Color option to submenu
-				submenu1.createMenuEntry(-1)
-					.setOption("Color")
-					.setType(MenuAction.RUNELITE)
-					.setParam0(entry.getParam0())
-					.setParam1(entry.getParam1())
-					.onClick(this::onKnightTile1ColorClick);
-				
-				// Create main "Knight Tile 2" menu entry
-				MenuEntry tile2Menu = client.createMenuEntry(3)
-					.setOption("Knight Tile 2")
-					.setTarget("")
-					.setType(MenuAction.RUNELITE);
-				
-				// Create submenu for Knight Tile 2
-				Menu submenu2 = tile2Menu.createSubMenu();
-				
-				// Add Set/Unset option to submenu
-				if (tileManager.getKnightTile2() == null)
-				{
-					submenu2.createMenuEntry(-1)
-						.setOption("Set")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onKnightTile2SetClick);
-				}
-				else
-				{
-					submenu2.createMenuEntry(-1)
-						.setOption("Unset")
-						.setType(MenuAction.RUNELITE)
-						.setParam0(entry.getParam0())
-						.setParam1(entry.getParam1())
-						.onClick(this::onKnightTile2UnsetClick);
-				}
-				
-				// Add Color option to submenu
-				submenu2.createMenuEntry(-1)
-					.setOption("Color")
-					.setType(MenuAction.RUNELITE)
-					.setParam0(entry.getParam0())
-					.setParam1(entry.getParam1())
-					.onClick(this::onKnightTile2ColorClick);
-				
+				addTileSubmenu(entry, 1, "Knight Boundary", tileManager.getBoundaryTile(),
+					this::onBoundarySetClick, this::onBoundaryUnsetClick, this::onBoundaryColorClick);
+				addTileSubmenu(entry, 2, "Knight Tile 1", tileManager.getKnightTile1(),
+					this::onKnightTile1SetClick, this::onKnightTile1UnsetClick, this::onKnightTile1ColorClick);
+				addTileSubmenu(entry, 3, "Knight Tile 2", tileManager.getKnightTile2(),
+					this::onKnightTile2SetClick, this::onKnightTile2UnsetClick, this::onKnightTile2ColorClick);
+
 				// Only add it once
 				break;
 			}
 		}
+	}
+
+	/**
+	 * Add a "Set"/"Unset" + "Color" right-click submenu for a tile marker to the
+	 * given Walk menu entry. Shows "Set" when the tile is unset and "Unset" when
+	 * it is already set.
+	 */
+	private void addTileSubmenu(MenuEntry walkEntry, int position, String label, WorldPoint currentTile,
+		java.util.function.Consumer<MenuEntry> onSet,
+		java.util.function.Consumer<MenuEntry> onUnset,
+		java.util.function.Consumer<MenuEntry> onColor)
+	{
+		MenuEntry mainMenu = client.createMenuEntry(position)
+			.setOption(label)
+			.setTarget("")
+			.setType(MenuAction.RUNELITE);
+
+		Menu submenu = mainMenu.createSubMenu();
+
+		// Show "Set" when unset, "Unset" when already set
+		submenu.createMenuEntry(-1)
+			.setOption(currentTile == null ? "Set" : "Unset")
+			.setType(MenuAction.RUNELITE)
+			.setParam0(walkEntry.getParam0())
+			.setParam1(walkEntry.getParam1())
+			.onClick(currentTile == null ? onSet : onUnset);
+
+		submenu.createMenuEntry(-1)
+			.setOption("Color")
+			.setType(MenuAction.RUNELITE)
+			.setParam0(walkEntry.getParam0())
+			.setParam1(walkEntry.getParam1())
+			.onClick(onColor);
 	}
 
 	private void onBoundarySetClick(MenuEntry entry)
@@ -1138,7 +1065,7 @@ public class SplashHelperPlugin extends Plugin
 		SplashSpell spell = session.getSpell();
 		if (spell != null)
 		{
-			session.setCurrentRuneCount(countLimitingRunes(spell));
+			session.setCurrentRuneCount(runeCalculator.getRemainingCasts(spell));
 		}
 
 		// Count nearby players
@@ -1193,15 +1120,6 @@ public class SplashHelperPlugin extends Plugin
 	public java.util.Set<Integer> getInfiniteRunesFromEquipment()
 	{
 		return runeCalculator.getInfiniteRunesFromEquipment();
-	}
-
-	/**
-	 * Count limiting runes for a spell.
-	 * Delegates to RuneCalculator service.
-	 */
-	private int countLimitingRunes(SplashSpell spell)
-	{
-		return runeCalculator.getRemainingCasts(spell);
 	}
 
 	/**
