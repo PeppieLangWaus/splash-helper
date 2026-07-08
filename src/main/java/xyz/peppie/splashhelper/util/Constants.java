@@ -10,7 +10,9 @@ public final class Constants
 	// ==================== Timing Constants ====================
 	public static final int SESSION_TIMEOUT_TICKS = 8;  // 8 game ticks (~4.8 seconds)
 	public static final int BOUNDARY_DEBOUNCE_TICKS = 5;
-	public static final int VISUAL_NOTIFICATION_DURATION_MS = 2000;
+
+	// Assumed splash cast rate used for "hours remaining" projections
+	public static final int CASTS_PER_HOUR = 1200;
 
 	// ==================== Combination Rune IDs ====================
 	public static final int MIST_RUNE = 4695;   // Air + Water
@@ -113,9 +115,6 @@ public final class Constants
 	public static final int ANIMATION_WEAKEN_CONFUSE = 716;
 	public static final int ANIMATION_UNKNOWN_MAGIC = 727;
 	public static final int ANIMATION_PICKPOCKET = 881;
-
-	// ==================== NPC IDs ====================
-	public static final int KNIGHT_OF_ARDOUGNE = 3297;
 
 	// ==================== Utility Methods ====================
 	public static boolean isBasicRune(int id)

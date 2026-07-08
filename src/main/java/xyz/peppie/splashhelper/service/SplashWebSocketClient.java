@@ -1,6 +1,7 @@
 package xyz.peppie.splashhelper.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -23,6 +24,7 @@ import net.runelite.api.Client;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import xyz.peppie.splashhelper.SplashHelperConfig;
+import xyz.peppie.splashhelper.model.PlayerCountSeries;
 import xyz.peppie.splashhelper.model.SplashSession;
 
 /**
@@ -60,9 +62,6 @@ public class SplashWebSocketClient
 
 	/** Epoch-second expiry of the current setup link JWT, or 0 if unknown. */
 	private volatile long setupLinkExpiry;
-
-	/** Last setup link that was logged, to avoid repeating the message on reconnects. */
-	private volatile String lastLoggedSetupLink = null;
 
 	/** True once we have logged the setup-required message for the current connection. Cleared on each new open. */
 	private volatile boolean setupLinkLoggedThisConnection = false;
@@ -202,27 +201,6 @@ public class SplashWebSocketClient
 			}
 		}
 		webSocket = null;
-	}
-
-	/**
-	 * Disconnect and shut down the background executor.
-	 * The executor will be lazily recreated if connect() is called again.
-	 */
-	public void shutdown()
-	{
-		// Flush any pending messages (SESSION_END etc.) before shutting down.
-		intentionalDisconnect = true;
-		authenticated.set(false);
-		ScheduledExecutorService ex = this.executor;
-		if (ex != null && !ex.isShutdown())
-		{
-			ex.execute(this::doDisconnect);
-			ex.shutdown(); // graceful — waits for queued tasks to finish
-		}
-		else
-		{
-			doDisconnect();
-		}
 	}
 
 	/**
@@ -464,12 +442,10 @@ public class SplashWebSocketClient
 						{
 							log.info("Account setup required. Link: {}", link);
 							setupLinkLoggedThisConnection = true;
-							lastLoggedSetupLink = link;
 						}
 						else
 						{
 							log.debug("Account setup required (reconnect). Link: {}", link);
-							lastLoggedSetupLink = link;
 						}
 					}
 					else
@@ -477,7 +453,6 @@ public class SplashWebSocketClient
 						// Account already set up — clear any stale link
 						setupLink = null;
 						setupLinkExpiry = 0;
-						lastLoggedSetupLink = null;
 					}
 					log.debug("WS authenticated for {}", activeUsername);
 					// Flush any SESSION_START that arrived before authentication completed
@@ -561,6 +536,22 @@ public class SplashWebSocketClient
 		}
 		obj.add("runeUsageMap", runeMap);
 		obj.addProperty("runeCostGp", session.getRuneCostGp());
+
+		// Downsampled player-count-over-time series for server-side graphs.
+		// Buckets of -1 mean "no data" (e.g. logout gap inside the resume window).
+		PlayerCountSeries series = session.getPlayerCountSeries();
+		if (series != null)
+		{
+			JsonObject seriesObj = new JsonObject();
+			seriesObj.addProperty("bucketSeconds", series.getBucketSeconds());
+			JsonArray buckets = new JsonArray();
+			for (Integer bucket : series.getBuckets())
+			{
+				buckets.add(bucket);
+			}
+			seriesObj.add("buckets", buckets);
+			obj.add("playerCountSeries", seriesObj);
+		}
 		return obj;
 	}
 

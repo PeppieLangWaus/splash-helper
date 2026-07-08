@@ -14,7 +14,8 @@ A RuneLite plugin designed to assist with splashing, mostly focused on Ardy Knig
 - **Session history** - Automatically saves and displays past splashing sessions
 - **Session deletion** - Right-click any session entry to delete unwanted sessions
 - **Detailed statistics** - Track player counts, knight movements, and pickpocketers
-- **Persistent storage** - Session history is saved between plugin restarts
+- **Persistent storage** - Session history is saved between plugin restarts (oldest sessions pruned once the configured limit is reached)
+- **Session resume** - A brief countdown lets a session resume automatically if you log back in or hop shortly after it ends, instead of starting a new one
 
 ### Tile Markers
 Three types of customizable tile markers:
@@ -83,13 +84,15 @@ Right-click any ground tile to access the tile marker menus:
 
 The overlay displays (when visible):
 - **Timer**: Remaining time in MM:SS format
-  - Green: > 1 minute remaining
-  - Yellow: < 1 minute remaining
-  - Red: < 30 seconds remaining
+  - Green: above the warning threshold
+  - Orange: at or below the warning threshold (default: 5 minutes)
+  - Red: at or below the critical threshold (default: 2 minutes), or expired
 - **Boundary**: Shows "SET" when boundary tile is configured
-- **Movements**: Shows X.X/min when both Knight Tiles are set
+- **Movements**: Shows X.X/hr when both Knight Tiles are set
   - Cyan: No movements detected yet
   - Green: Movement tracking active
+
+When **Visual Notification** is enabled, the full screen tint follows the same thresholds: orange at the warning threshold, red at the critical threshold and on notification (timer expiry).
 
 ## Configuration Options
 
@@ -100,6 +103,8 @@ The overlay displays (when visible):
 | **NPC Name** | Name of the NPC to track (e.g., "Knight of Ardougne", "Rat") | "Rat" |
 | **Timer Duration** | Timer countdown duration in minutes | 13 |
 | **Show Timer Overlay** | Display the timer overlay on screen | Enabled |
+| **Warning Threshold (minutes)** | Timer text and screen tint turn orange when this many minutes remain (clamped to the timer duration) | 5 |
+| **Critical Threshold (minutes)** | Timer text and screen tint turn red when this many minutes remain (clamped to the warning threshold) | 2 |
 
 ### Session Statistics Settings
 | Setting | Description | Default |
@@ -107,6 +112,7 @@ The overlay displays (when visible):
 | **Show Session History** | Display session history panel in statistics | Enabled |
 | **Session History Fields** | Choose which statistics to display in session entries | All fields enabled |
 | **Max Player Count Samples** | Maximum number of player count samples to store | 100 |
+| **Sessions Kept On Disk** | Maximum number of finished sessions kept in local history; older sessions are pruned (Server Sync retains full history) | 200 |
 
 ### Safety & Warning Settings
 | Setting | Description | Default |
@@ -123,6 +129,10 @@ The overlay displays (when visible):
 | **Knight Tile 2 Color** | Color of the second movement tracking tile | Blue |
 
 All color settings support transparency via the alpha channel.
+
+### Server Sync
+
+**Disabled by default.** Enabling Server Sync connects to a third-party Splash Helper server (splasher.help by default) and streams live session data, including your account username and session statistics — spell used, world, magic XP, rune usage and cost, spells cast, knight movements, nearby player counts, and timestamps. No data is sent while this setting is disabled.
 
 ## Author
 
