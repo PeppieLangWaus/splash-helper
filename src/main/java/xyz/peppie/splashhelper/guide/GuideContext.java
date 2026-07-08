@@ -39,8 +39,15 @@ public interface GuideContext
 
 	/**
 	 * Amount of the most recent hitsplat applied to the knight since the current phase
-	 * began, or {@code null} if none. A magic splash reports {@code 0}; a landed
-	 * entangle/snare reports {@code >= 1}.
+	 * began, or {@code null} if none. Only a landed hit (e.g. entangle/snare binding)
+	 * produces a hitsplat; a magic splash produces no hitsplat at all — use
+	 * {@link #knightSplashed()} for that.
 	 */
 	Integer pendingKnightHit();
+
+	/**
+	 * True if the knight has shown the magic-splash spot animation since the current phase
+	 * began. A splash never produces a hitsplat, so this is the only reliable splash signal.
+	 */
+	boolean knightSplashed();
 }

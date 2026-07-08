@@ -15,6 +15,7 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.GraphicChanged;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.gameval.InventoryID;
 import xyz.peppie.splashhelper.SplashHelperConfig;
@@ -58,6 +59,7 @@ public class GuideEngine implements GuideContext
 
 	private int specEnergyAtPhaseStart;
 	private Integer pendingKnightHit;
+	private boolean pendingKnightSplash;
 	private Instant stepEnteredAt = Instant.now();
 
 	// Splasher-gear snapshot captured when step "1" completes (item id per equipment slot).
@@ -82,6 +84,7 @@ public class GuideEngine implements GuideContext
 		phaseIndex = 0;
 		gearSnapshot = null;
 		pendingKnightHit = null;
+		pendingKnightSplash = false;
 		lastKnightPos = null;
 
 		if (!config.requirementsAcknowledged())
@@ -156,6 +159,17 @@ public class GuideEngine implements GuideContext
 		if (state == State.RUNNING && knight != null && event.getActor() == knight)
 		{
 			pendingKnightHit = event.getHitsplat().getAmount();
+		}
+	}
+
+	public void onGraphicChanged(GraphicChanged event)
+	{
+		// A splash applies the splash spot-anim (NPC inspector "G" == 85) to the knight;
+		// it produces no hitsplat, so this is the only reliable way to detect it.
+		if (state == State.RUNNING && knight != null && event.getActor() == knight
+			&& knight.hasSpotAnim(GuideConstants.SPOTANIM_SPLASH))
+		{
+			pendingKnightSplash = true;
 		}
 	}
 
@@ -246,6 +260,7 @@ public class GuideEngine implements GuideContext
 	{
 		specEnergyAtPhaseStart = specEnergy();
 		pendingKnightHit = null;
+		pendingKnightSplash = false;
 	}
 
 	// ==================== accessors for overlays ====================
@@ -275,7 +290,8 @@ public class GuideEngine implements GuideContext
 	{
 		GuideStep step = currentStep();
 		return step != null && step.armorMustBeOff()
-			&& !(equipmentSlotEmpty(GuideConstants.SLOT_BODY)
+			&& !(equipmentSlotEmpty(GuideConstants.SLOT_HEAD)
+				&& equipmentSlotEmpty(GuideConstants.SLOT_BODY)
 				&& equipmentSlotEmpty(GuideConstants.SLOT_LEGS)
 				&& equipmentSlotEmpty(GuideConstants.SLOT_FEET));
 	}
@@ -309,17 +325,21 @@ public class GuideEngine implements GuideContext
 		return false;
 	}
 
-	/** Item ids of the saved splasher gear that we strip and later re-equip (body/legs/boots). */
+	/**
+	 * Item ids of every piece worn when the splasher-gear snapshot was taken. Used to highlight
+	 * whatever now sits in the inventory and needs re-equipping — not just the armour we stripped,
+	 * but also the staff and shield that equipping the spear displaced.
+	 */
 	public List<Integer> savedGearItemIds()
 	{
 		List<Integer> ids = new ArrayList<>();
 		if (gearSnapshot != null)
 		{
-			for (int slot : new int[]{GuideConstants.SLOT_BODY, GuideConstants.SLOT_LEGS, GuideConstants.SLOT_FEET})
+			for (int itemId : gearSnapshot)
 			{
-				if (slot < gearSnapshot.length && gearSnapshot[slot] > 0)
+				if (itemId > 0)
 				{
-					ids.add(gearSnapshot[slot]);
+					ids.add(itemId);
 				}
 			}
 		}
@@ -419,9 +439,9 @@ public class GuideEngine implements GuideContext
 		{
 			return false;
 		}
-		for (int slot : new int[]{GuideConstants.SLOT_BODY, GuideConstants.SLOT_LEGS, GuideConstants.SLOT_FEET})
+		for (int slot = 0; slot < gearSnapshot.length; slot++)
 		{
-			int expected = slot < gearSnapshot.length ? gearSnapshot[slot] : -1;
+			int expected = gearSnapshot[slot];
 			if (expected <= 0)
 			{
 				continue; // slot was empty at snapshot time — nothing to restore
@@ -439,6 +459,12 @@ public class GuideEngine implements GuideContext
 	public Integer pendingKnightHit()
 	{
 		return pendingKnightHit;
+	}
+
+	@Override
+	public boolean knightSplashed()
+	{
+		return pendingKnightSplash;
 	}
 
 	// ==================== helpers ====================

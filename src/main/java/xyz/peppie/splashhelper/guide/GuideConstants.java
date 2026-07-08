@@ -21,11 +21,14 @@ public final class GuideConstants
 	public static final int WIDGET_ENTANGLE = 14286917;
 	public static final int WIDGET_SNARE = 14286890;
 	public static final int WIDGET_SPEC_BUTTON = 10485796;
+	// Worn-equipment interface (group 387) slot components. child = 15 head, 19 body, 21 legs, 23 boots.
+	public static final int WIDGET_EQUIP_HEAD = 25362447;
 	public static final int WIDGET_EQUIP_BODY = 25362451;
 	public static final int WIDGET_EQUIP_LEGS = 25362453;
 	public static final int WIDGET_EQUIP_FEET = 25362455;
 
 	// ==================== Equipment slot indices (EquipmentInventorySlot) ====================
+	public static final int SLOT_HEAD = 0;
 	public static final int SLOT_BODY = 4;
 	public static final int SLOT_LEGS = 7;
 	public static final int SLOT_FEET = 10;
@@ -38,6 +41,10 @@ public final class GuideConstants
 
 	public static final int SPEC_FULL = 1000;
 	public static final int SPEC_PER_ATTACK = 250;
+
+	// ==================== Spot animations ====================
+	// The spot-anim (NPC inspector "G") applied to a target when a spell splashes on it.
+	public static final int SPOTANIM_SPLASH = 85;
 
 	// ==================== Requirements (shown on the first-run acknowledgement screen) ====================
 	public static final String[] MAIN_REQUIREMENTS = {

@@ -542,12 +542,25 @@ public interface SplashHelperConfig extends Config
 		return 15;
 	}
 
+	@Range(min = 4, max = 28)
+	@ConfigItem(
+		keyName = "guideArrowSize",
+		name = "Arrow Size",
+		description = "Size (in pixels) of the highlight arrows drawn above tiles, NPCs and interface elements",
+		section = guideSection,
+		position = 4
+	)
+	default int guideArrowSize()
+	{
+		return 12;
+	}
+
 	@ConfigItem(
 		keyName = "requirementsAcknowledged",
 		name = "Requirements Acknowledged",
 		description = "Whether the setup requirements have been acknowledged. Uncheck to show the requirements screen again on the next start.",
 		section = guideSection,
-		position = 4
+		position = 5
 	)
 	default boolean requirementsAcknowledged()
 	{

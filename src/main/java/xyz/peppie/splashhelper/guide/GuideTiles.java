@@ -14,8 +14,11 @@ public final class GuideTiles
 {
 	private GuideTiles() {}
 
-	// Where the alt account stands (main only detects "a player is on this tile").
+	// Where the alt account stands to cast Energy Transfer (main only detects "a player is on this tile").
 	public static final WorldPoint ALT = new WorldPoint(2647, 3290, 0);
+	// One tile north of DSPEAR7; the alt repositions here after the transfer to steady the knight's
+	// otherwise-inconsistent walk-off from DSPEAR7.
+	public static final WorldPoint ALT2 = new WorldPoint(2644, 3290, 0);
 
 	// Opening positions.
 	public static final WorldPoint PLAYER = new WorldPoint(2652, 3289, 0);

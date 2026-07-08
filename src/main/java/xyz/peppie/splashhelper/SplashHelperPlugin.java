@@ -33,6 +33,7 @@ import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GraphicChanged;
 import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
@@ -605,6 +606,12 @@ public class SplashHelperPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onGraphicChanged(GraphicChanged event)
+	{
+		guideEngine.onGraphicChanged(event);
+	}
+
+	@Subscribe
 	public void onInteractingChanged(InteractingChanged event)
 	{
 		if (event.getTarget() != null && event.getTarget().getName() != null) 
@@ -729,40 +736,10 @@ public class SplashHelperPlugin extends Plugin
 			}
 		}
 
-		// Remove "Attack" option from knights if magic bonus is too high
-		if (hasBadMagicBonus)
-		{
-			String configuredNpc = config.targetNpc().getNpcName();
-			java.util.List<MenuEntry> filteredEntries = new java.util.ArrayList<>();
-			
-			for (MenuEntry entry : entries)
-			{
-				boolean shouldRemove = false;
-				
-				if (entry.getOption() != null && entry.getOption().equalsIgnoreCase("Attack"))
-				{
-					String targetName = cleanNpcName(entry.getTarget());
-					if (configuredNpc != null && !configuredNpc.isEmpty() && 
-						isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
-					{
-						shouldRemove = true;
-					}
-				}
-				
-				if (!shouldRemove)
-				{
-					filteredEntries.add(entry);
-				}
-			}
-			
-			// Update menu entries if we removed any
-			if (filteredEntries.size() < entries.length)
-			{
-				client.setMenuEntries(filteredEntries.toArray(new MenuEntry[0]));
-				entries = client.getMenuEntries();
-			}
-		}
-		
+		// Note: a bad magic bonus only surfaces a warning (see onMenuOptionClicked); we
+		// deliberately leave the "Attack" option in place so the click still goes through —
+		// stripping it could cost the player aggro on the knight.
+
 		// Add the tile submenus to the first Walk menu entry (to get tile coordinates)
 		for (MenuEntry entry : entries)
 		{
@@ -993,22 +970,19 @@ public class SplashHelperPlugin extends Plugin
 		{
 			if (isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
 			{
-				// Check if player is trying to attack with bad magic bonus
+				// Warn — but don't block — if attacking with a bad magic bonus. Consuming the
+				// click could cost us aggro in some cases, so we only surface the warning and
+				// let the attack proceed.
 				String menuOption = event.getMenuOption();
 				if (menuOption != null && menuOption.equalsIgnoreCase("Attack") && hasBadMagicBonus)
 				{
-					// Block the attack action
-					event.consume();
-					
-					// Show warning notification
 					Instant now = Instant.now();
 					if (lastBonusWarning == null || Duration.between(lastBonusWarning, now).getSeconds() > 5)
 					{
-						client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
+						client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
 							"<col=ff0000>Warning: Your magic attack bonus is too high for splashing! (Need -64 or lower)</col>", null);
 						lastBonusWarning = now;
 					}
-					return;
 				}
 
 				// Track the knight this session is engaged with so its type

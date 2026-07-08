@@ -14,6 +14,8 @@ public final class StepHighlight
 	{
 		/** The tracked sticky knight NPC. */
 		KNIGHT,
+		/** Another player standing on {@link #tile} (e.g. the alt), outlined by its model. */
+		OTHER_PLAYER,
 		/** A ground tile (world point). */
 		TILE,
 		/** An interface widget by packed id (tabs, spec orb, entangle). */
@@ -29,15 +31,22 @@ public final class StepHighlight
 	public final Type type;
 	public final WorldPoint tile;
 	public final int id;          // widget id, item id, or equipment slot widget id
+	public final int slotIndex;   // EquipmentInventorySlot index for EQUIPMENT_SLOT; -1 otherwise
 	public final String label;    // optional on-screen text
 	public final Color color;     // optional override; null = overlay default
 	public final boolean emphasize; // extra-prominent styling (e.g. "WAIT HERE")
 
 	private StepHighlight(Type type, WorldPoint tile, int id, String label, Color color, boolean emphasize)
 	{
+		this(type, tile, id, -1, label, color, emphasize);
+	}
+
+	private StepHighlight(Type type, WorldPoint tile, int id, int slotIndex, String label, Color color, boolean emphasize)
+	{
 		this.type = type;
 		this.tile = tile;
 		this.id = id;
+		this.slotIndex = slotIndex;
 		this.label = label;
 		this.color = color;
 		this.emphasize = emphasize;
@@ -46,6 +55,12 @@ public final class StepHighlight
 	public static StepHighlight knight()
 	{
 		return new StepHighlight(Type.KNIGHT, null, -1, null, null, false);
+	}
+
+	/** Outline whichever player is standing on {@code tile} (used for the alt). */
+	public static StepHighlight otherPlayer(WorldPoint tile, String label)
+	{
+		return new StepHighlight(Type.OTHER_PLAYER, tile, -1, label, null, false);
 	}
 
 	public static StepHighlight tile(WorldPoint tile)
@@ -74,9 +89,11 @@ public final class StepHighlight
 		return new StepHighlight(Type.INVENTORY_ITEM, null, itemId, null, null, false);
 	}
 
-	public static StepHighlight equipmentSlot(int slotWidgetId)
+	/** A worn-equipment slot: {@code slotWidgetId} for its on-screen box, {@code slotIndex} to tell
+	 *  whether it currently holds an item (only occupied slots are drawn). */
+	public static StepHighlight equipmentSlot(int slotWidgetId, int slotIndex)
 	{
-		return new StepHighlight(Type.EQUIPMENT_SLOT, null, slotWidgetId, null, null, false);
+		return new StepHighlight(Type.EQUIPMENT_SLOT, null, slotWidgetId, slotIndex, null, null, false);
 	}
 
 	public static StepHighlight savedGear()

@@ -83,20 +83,16 @@ public interface AdvanceCondition
 		};
 	}
 
-	/** A magic splash on the knight (a 0 hitsplat). */
+	/** A magic splash on the knight (the splash spot-anim; splashes produce no hitsplat). */
 	static AdvanceCondition knightSplash()
 	{
-		return ctx ->
-		{
-			Integer hit = ctx.pendingKnightHit();
-			return hit != null && hit == 0;
-		};
+		return GuideContext::knightSplashed;
 	}
 
-	/** Any hitsplat on the knight, splash or damage. */
+	/** Any interaction landing on the knight — a splash or a damaging/binding hit. */
 	static AdvanceCondition knightAnyHit()
 	{
-		return ctx -> ctx.pendingKnightHit() != null;
+		return ctx -> ctx.knightSplashed() || ctx.pendingKnightHit() != null;
 	}
 
 	// ==================== Equipment ====================
@@ -124,13 +120,6 @@ public interface AdvanceCondition
 	static AdvanceCondition gearRestored()
 	{
 		return GuideContext::gearRestored;
-	}
-
-	// ==================== Combinators ====================
-
-	static AdvanceCondition and(AdvanceCondition a, AdvanceCondition b)
-	{
-		return ctx -> a.isMet(ctx) && b.isMet(ctx);
 	}
 
 	/** Never auto-completes; the player advances this phase with the manual "next" hotkey. */
