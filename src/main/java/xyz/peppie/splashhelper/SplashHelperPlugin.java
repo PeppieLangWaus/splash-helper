@@ -28,6 +28,7 @@ import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
@@ -54,6 +55,10 @@ import xyz.peppie.splashhelper.overlays.MagicBonusWarningOverlay;
 import xyz.peppie.splashhelper.overlays.SafetyModeOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
 import xyz.peppie.splashhelper.overlays.VisualNotificationOverlay;
+import xyz.peppie.splashhelper.overlays.GuideSceneOverlay;
+import xyz.peppie.splashhelper.overlays.GuideWidgetOverlay;
+import xyz.peppie.splashhelper.overlays.GuidePanelOverlay;
+import xyz.peppie.splashhelper.guide.GuideEngine;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.service.KnightDetector;
@@ -100,6 +105,18 @@ public class SplashHelperPlugin extends Plugin
 
 	@Inject
 	private MagicBonusWarningOverlay magicBonusWarningOverlay;
+
+	@Inject
+	private GuideEngine guideEngine;
+
+	@Inject
+	private GuideSceneOverlay guideSceneOverlay;
+
+	@Inject
+	private GuideWidgetOverlay guideWidgetOverlay;
+
+	@Inject
+	private GuidePanelOverlay guidePanelOverlay;
 
 	@Inject
 	private ClientToolbar clientToolbar;
@@ -266,9 +283,13 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.add(griefPreventionOverlay);
 		overlayManager.add(magicBonusWarningOverlay);
 		overlayManager.add(safetyModeOverlay);
+		overlayManager.add(guideSceneOverlay);
+		overlayManager.add(guideWidgetOverlay);
+		overlayManager.add(guidePanelOverlay);
 
-		// Register key listener for safety mode
+		// Register key listeners
 		keyManager.registerKeyListener(safetyModeKeyListener);
+		keyManager.registerKeyListener(guideKeyListener);
 		
 		// Load safety mode state from config
 		safetyModeEnabled = config.safetyModeEnabled();
@@ -333,9 +354,14 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.remove(griefPreventionOverlay);
 		overlayManager.remove(magicBonusWarningOverlay);
 		overlayManager.remove(safetyModeOverlay);
+		overlayManager.remove(guideSceneOverlay);
+		overlayManager.remove(guideWidgetOverlay);
+		overlayManager.remove(guidePanelOverlay);
 
-		// Unregister key listener
+		// Unregister key listeners
 		keyManager.unregisterKeyListener(safetyModeKeyListener);
+		keyManager.unregisterKeyListener(guideKeyListener);
+		guideEngine.stop();
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -563,7 +589,15 @@ public class SplashHelperPlugin extends Plugin
 		}
 		tileManager.trackKnightMovement();
 
+		guideEngine.onGameTick();
+
 		updateSessionStatistics();
+	}
+
+	@Subscribe
+	public void onHitsplatApplied(HitsplatApplied event)
+	{
+		guideEngine.onHitsplat(event);
 	}
 
 	@Subscribe
@@ -593,12 +627,103 @@ public class SplashHelperPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Toggle the sticky knight setup guide on/off.
+	 */
+	private void toggleGuide()
+	{
+		if (guideEngine.isStartedOrAck())
+		{
+			guideEngine.stop();
+			clientThread.invoke(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+				"<col=ff0000>Sticky knight guide stopped</col>", null));
+		}
+		else
+		{
+			guideEngine.start();
+		}
+	}
+
+	/**
+	 * Key listener for the sticky knight guide (start/stop, next/skip, back).
+	 */
+	private final KeyListener guideKeyListener = new KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			if (config.guideStartHotkey().matches(e))
+			{
+				toggleGuide();
+				e.consume();
+			}
+			else if (config.guideNextHotkey().matches(e))
+			{
+				guideEngine.next();
+				e.consume();
+			}
+			else if (config.guideBackHotkey().matches(e))
+			{
+				guideEngine.back();
+				e.consume();
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+
 	@Subscribe
 	@SuppressWarnings("deprecation")
 	public void onMenuOpened(MenuOpened event)
 	{
 		MenuEntry[] entries = event.getMenuEntries();
-		
+
+		// While the guide is on an Entangle step, only allow casting on the knight so the
+		// spell can't be miscast on the alt or another entity behind it.
+		if (guideEngine.restrictEntangleToKnight())
+		{
+			java.util.List<MenuEntry> kept = new java.util.ArrayList<>();
+			for (MenuEntry entry : entries)
+			{
+				MenuAction action = entry.getType();
+				boolean spellOnTarget =
+					action == MenuAction.WIDGET_TARGET_ON_NPC ||
+					action == MenuAction.WIDGET_TARGET_ON_PLAYER ||
+					action == MenuAction.WIDGET_TARGET_ON_GAME_OBJECT ||
+					action == MenuAction.WIDGET_TARGET_ON_GROUND_ITEM ||
+					action == MenuAction.WIDGET_TARGET_ON_WIDGET;
+
+				if (spellOnTarget)
+				{
+					String targetName = cleanNpcName(entry.getTarget());
+					if (action == MenuAction.WIDGET_TARGET_ON_NPC &&
+						targetName != null && targetName.equalsIgnoreCase("Knight of Ardougne"))
+					{
+						kept.add(entry);
+					}
+					// otherwise drop it — not a valid Entangle target during the guide
+				}
+				else
+				{
+					kept.add(entry);
+				}
+			}
+
+			if (kept.size() < entries.length)
+			{
+				client.setMenuEntries(kept.toArray(new MenuEntry[0]));
+				entries = client.getMenuEntries();
+			}
+		}
+
 		// Remove "Attack" option from knights if magic bonus is too high
 		if (hasBadMagicBonus)
 		{
@@ -640,6 +765,14 @@ public class SplashHelperPlugin extends Plugin
 		{
 			if (entry.getType() == MenuAction.WALK)
 			{
+				// Sticky Knight Guide start/stop entry
+				String guideOption = guideEngine.isStartedOrAck() ? "Stop" : "Start";
+				client.createMenuEntry(1)
+					.setOption(guideOption + " Sticky Knight Guide")
+					.setTarget("")
+					.setType(MenuAction.RUNELITE)
+					.onClick(me -> toggleGuide());
+
 				// Create main "Knight Boundary" menu entry
 				MenuEntry boundaryMenu = client.createMenuEntry(1)
 					.setOption("Knight Boundary")
