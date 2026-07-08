@@ -5,6 +5,7 @@ import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.model.OverallStatField;
 import xyz.peppie.splashhelper.model.SessionStatField;
 import java.awt.Color;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.EnumSet;
 import java.util.Set;
@@ -13,6 +14,7 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.config.ModifierlessKeybind;
 import net.runelite.client.config.Range;
 
@@ -480,4 +482,95 @@ public interface SplashHelperConfig extends Config
 	{
 		return "wss://api.splasher.help";
 	}
+
+	// ==================== Sticky Knight Guide ====================
+
+	@ConfigSection(
+		name = "Sticky Knight Guide",
+		description = "Step-by-step guide for setting up a sticky knight",
+		position = 50,
+		closedByDefault = true
+	)
+	String guideSection = "guide";
+
+	@ConfigItem(
+		keyName = "guideStartHotkey",
+		name = "Start/Stop Guide",
+		description = "Hotkey to start or stop the sticky knight setup guide",
+		section = guideSection,
+		position = 0
+	)
+	default Keybind guideStartHotkey()
+	{
+		return new Keybind(KeyEvent.VK_G, InputEvent.CTRL_DOWN_MASK);
+	}
+
+	@ConfigItem(
+		keyName = "guideNextHotkey",
+		name = "Next / Skip Step",
+		description = "Hotkey to acknowledge the requirements screen, or skip the current step",
+		section = guideSection,
+		position = 1
+	)
+	default Keybind guideNextHotkey()
+	{
+		return new Keybind(KeyEvent.VK_PERIOD, InputEvent.CTRL_DOWN_MASK);
+	}
+
+	@ConfigItem(
+		keyName = "guideBackHotkey",
+		name = "Previous Step",
+		description = "Hotkey to go back one step",
+		section = guideSection,
+		position = 2
+	)
+	default Keybind guideBackHotkey()
+	{
+		return new Keybind(KeyEvent.VK_COMMA, InputEvent.CTRL_DOWN_MASK);
+	}
+
+	@Range(min = 3, max = 120)
+	@ConfigItem(
+		keyName = "guideStepTimeoutSeconds",
+		name = "Stuck Hint Delay (seconds)",
+		description = "How long on a step before showing the 'you can go back' hint",
+		section = guideSection,
+		position = 3
+	)
+	default int guideStepTimeoutSeconds()
+	{
+		return 15;
+	}
+
+	@Range(min = 4, max = 28)
+	@ConfigItem(
+		keyName = "guideArrowSize",
+		name = "Arrow Size",
+		description = "Size (in pixels) of the highlight arrows drawn above tiles, NPCs and interface elements",
+		section = guideSection,
+		position = 4
+	)
+	default int guideArrowSize()
+	{
+		return 12;
+	}
+
+	@ConfigItem(
+		keyName = "requirementsAcknowledged",
+		name = "Requirements Acknowledged",
+		description = "Whether the setup requirements have been acknowledged. Uncheck to show the requirements screen again on the next start.",
+		section = guideSection,
+		position = 5
+	)
+	default boolean requirementsAcknowledged()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "requirementsAcknowledged",
+		name = "",
+		description = ""
+	)
+	void setRequirementsAcknowledged(boolean value);
 }

@@ -33,6 +33,9 @@ import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GraphicChanged;
+import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.InteractingChanged;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
@@ -58,6 +61,10 @@ import xyz.peppie.splashhelper.overlays.MagicBonusWarningOverlay;
 import xyz.peppie.splashhelper.overlays.SafetyModeOverlay;
 import xyz.peppie.splashhelper.overlays.SplashHelperOverlay;
 import xyz.peppie.splashhelper.overlays.VisualNotificationOverlay;
+import xyz.peppie.splashhelper.overlays.GuideSceneOverlay;
+import xyz.peppie.splashhelper.overlays.GuideWidgetOverlay;
+import xyz.peppie.splashhelper.overlays.GuidePanelOverlay;
+import xyz.peppie.splashhelper.guide.GuideEngine;
 import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.model.TimerAlertLevel;
@@ -105,6 +112,18 @@ public class SplashHelperPlugin extends Plugin
 
 	@Inject
 	private MagicBonusWarningOverlay magicBonusWarningOverlay;
+
+	@Inject
+	private GuideEngine guideEngine;
+
+	@Inject
+	private GuideSceneOverlay guideSceneOverlay;
+
+	@Inject
+	private GuideWidgetOverlay guideWidgetOverlay;
+
+	@Inject
+	private GuidePanelOverlay guidePanelOverlay;
 
 	@Inject
 	private ClientToolbar clientToolbar;
@@ -258,10 +277,15 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.add(griefPreventionOverlay);
 		overlayManager.add(magicBonusWarningOverlay);
 		overlayManager.add(safetyModeOverlay);
+		overlayManager.add(guideSceneOverlay);
+		overlayManager.add(guideWidgetOverlay);
+		overlayManager.add(guidePanelOverlay);
 
-		// Register key listeners: safety-mode hotkey + combat-idle-timer mirroring
+		// Register key listeners
 		keyManager.registerKeyListener(safetyModeKeyListener);
+		keyManager.registerKeyListener(guideKeyListener);
 		keyManager.registerKeyListener(timerResetKeyListener);
+
 
 		// Load safety mode state from config
 		safetyModeEnabled = config.safetyModeEnabled();
@@ -326,10 +350,15 @@ public class SplashHelperPlugin extends Plugin
 		overlayManager.remove(griefPreventionOverlay);
 		overlayManager.remove(magicBonusWarningOverlay);
 		overlayManager.remove(safetyModeOverlay);
+		overlayManager.remove(guideSceneOverlay);
+		overlayManager.remove(guideWidgetOverlay);
+		overlayManager.remove(guidePanelOverlay);
 
 		// Unregister key listeners
 		keyManager.unregisterKeyListener(safetyModeKeyListener);
+		keyManager.unregisterKeyListener(guideKeyListener);
 		keyManager.unregisterKeyListener(timerResetKeyListener);
+		guideEngine.stop();
 		if (navButton != null)
 		{
 			clientToolbar.removeNavigation(navButton);
@@ -565,7 +594,35 @@ public class SplashHelperPlugin extends Plugin
 		}
 		tileManager.trackKnightMovement();
 
+		guideEngine.onGameTick();
+
 		updateSessionStatistics();
+	}
+
+	@Subscribe
+	public void onHitsplatApplied(HitsplatApplied event)
+	{
+		guideEngine.onHitsplat(event);
+	}
+
+	@Subscribe
+	public void onGraphicChanged(GraphicChanged event)
+	{
+		guideEngine.onGraphicChanged(event);
+	}
+
+	@Subscribe
+	public void onInteractingChanged(InteractingChanged event)
+	{
+		if (event.getTarget() != null && event.getTarget().getName() != null) 
+		{
+			String sourceName = event.getSource().getName();
+			String playerName = client.getLocalPlayer().getName();
+			if (sourceName != null && sourceName.equalsIgnoreCase(playerName)) {
+				// Session start moved to onAnimationChanged to detect actual spell casting
+				// This works for both normal combat and safe-spotting scenarios
+			}
+		}
 	}
 
 	@Subscribe
@@ -582,51 +639,120 @@ public class SplashHelperPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Toggle the sticky knight setup guide on/off.
+	 */
+	private void toggleGuide()
+	{
+		if (guideEngine.isStartedOrAck())
+		{
+			guideEngine.stop();
+			clientThread.invoke(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
+				"<col=ff0000>Sticky knight guide stopped</col>", null));
+		}
+		else
+		{
+			guideEngine.start();
+		}
+	}
+
+	/**
+	 * Key listener for the sticky knight guide (start/stop, next/skip, back).
+	 */
+	private final KeyListener guideKeyListener = new KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			if (config.guideStartHotkey().matches(e))
+			{
+				toggleGuide();
+				e.consume();
+			}
+			else if (config.guideNextHotkey().matches(e))
+			{
+				guideEngine.next();
+				e.consume();
+			}
+			else if (config.guideBackHotkey().matches(e))
+			{
+				guideEngine.back();
+				e.consume();
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+
 	@Subscribe
 	@SuppressWarnings("deprecation")
 	public void onMenuOpened(MenuOpened event)
 	{
 		MenuEntry[] entries = event.getMenuEntries();
-		
-		// Remove "Attack" option from knights if magic bonus is too high
-		if (hasBadMagicBonus)
+
+		// While the guide is on an Entangle step, only allow casting on the knight so the
+		// spell can't be miscast on the alt or another entity behind it.
+		if (guideEngine.restrictEntangleToKnight())
 		{
-			String configuredNpc = config.targetNpc().getNpcName();
-			java.util.List<MenuEntry> filteredEntries = new java.util.ArrayList<>();
-			
+			java.util.List<MenuEntry> kept = new java.util.ArrayList<>();
 			for (MenuEntry entry : entries)
 			{
-				boolean shouldRemove = false;
-				
-				if (entry.getOption() != null && entry.getOption().equalsIgnoreCase("Attack"))
+				MenuAction action = entry.getType();
+				boolean spellOnTarget =
+					action == MenuAction.WIDGET_TARGET_ON_NPC ||
+					action == MenuAction.WIDGET_TARGET_ON_PLAYER ||
+					action == MenuAction.WIDGET_TARGET_ON_GAME_OBJECT ||
+					action == MenuAction.WIDGET_TARGET_ON_GROUND_ITEM ||
+					action == MenuAction.WIDGET_TARGET_ON_WIDGET;
+
+				if (spellOnTarget)
 				{
 					String targetName = cleanNpcName(entry.getTarget());
-					if (configuredNpc != null && !configuredNpc.isEmpty() && 
-						isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
+					if (action == MenuAction.WIDGET_TARGET_ON_NPC &&
+						targetName != null && targetName.equalsIgnoreCase("Knight of Ardougne"))
 					{
-						shouldRemove = true;
+						kept.add(entry);
 					}
+					// otherwise drop it — not a valid Entangle target during the guide
 				}
-				
-				if (!shouldRemove)
+				else
 				{
-					filteredEntries.add(entry);
+					kept.add(entry);
 				}
 			}
-			
-			// Update menu entries if we removed any
-			if (filteredEntries.size() < entries.length)
+
+			if (kept.size() < entries.length)
 			{
-				client.setMenuEntries(filteredEntries.toArray(new MenuEntry[0]));
+				client.setMenuEntries(kept.toArray(new MenuEntry[0]));
 				entries = client.getMenuEntries();
 			}
 		}
-		
+
+		// Note: a bad magic bonus only surfaces a warning (see onMenuOptionClicked); we
+		// deliberately leave the "Attack" option in place so the click still goes through —
+		// stripping it could cost the player aggro on the knight.
+
 		// Add the tile submenus to the first Walk menu entry (to get tile coordinates)
 		for (MenuEntry entry : entries)
 		{
 			if (entry.getType() == MenuAction.WALK)
 			{
+				// Sticky Knight Guide start/stop entry
+				String guideOption = guideEngine.isStartedOrAck() ? "Stop" : "Start";
+				client.createMenuEntry(1)
+					.setOption(guideOption + " Sticky Knight Guide")
+					.setTarget("")
+					.setType(MenuAction.RUNELITE)
+					.onClick(me -> toggleGuide());
+
 				addTileSubmenu(entry, 1, "Knight Boundary", tileManager.getBoundaryTile(),
 					this::onBoundarySetClick, this::onBoundaryUnsetClick, this::onBoundaryColorClick);
 				addTileSubmenu(entry, 2, "Knight Tile 1", tileManager.getKnightTile1(),
@@ -844,22 +970,19 @@ public class SplashHelperPlugin extends Plugin
 		{
 			if (isAllowedNpc(targetName) && targetName.equalsIgnoreCase(configuredNpc))
 			{
-				// Check if player is trying to attack with bad magic bonus
+				// Warn — but don't block — if attacking with a bad magic bonus. Consuming the
+				// click could cost us aggro in some cases, so we only surface the warning and
+				// let the attack proceed.
 				String menuOption = event.getMenuOption();
 				if (menuOption != null && menuOption.equalsIgnoreCase("Attack") && hasBadMagicBonus)
 				{
-					// Block the attack action
-					event.consume();
-					
-					// Show warning notification
 					Instant now = Instant.now();
 					if (lastBonusWarning == null || Duration.between(lastBonusWarning, now).getSeconds() > 5)
 					{
-						client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", 
+						client.addChatMessage(ChatMessageType.GAMEMESSAGE, "",
 							"<col=ff0000>Warning: Your magic attack bonus is too high for splashing! (Need -64 or lower)</col>", null);
 						lastBonusWarning = now;
 					}
-					return;
 				}
 
 				// Track the knight this session is engaged with so its type
