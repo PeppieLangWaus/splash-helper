@@ -527,6 +527,7 @@ public class SplashWebSocketClient
 		obj.addProperty("highestPlayerCount", session.getHighestPlayerCount());
 		obj.addProperty("averagePlayerCount", session.getAveragePlayerCount());
 		obj.addProperty("pickpocketerCount", session.getPickpocketerCount());
+		obj.addProperty("playerDeaths", session.getPlayerDeaths());
 		obj.addProperty("startingRuneCount", session.getStartingRuneCount());
 		obj.addProperty("currentRuneCount", session.getCurrentRuneCount());
 		JsonObject runeMap = new JsonObject();

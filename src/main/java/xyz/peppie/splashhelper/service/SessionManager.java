@@ -383,6 +383,17 @@ public class SessionManager
 	}
 
 	/**
+	 * Record a nearby player death in the current session.
+	 */
+	public void recordPlayerDeath()
+	{
+		if (currentSession != null)
+		{
+			currentSession.incrementPlayerDeaths();
+		}
+	}
+
+	/**
 	 * Add a pickpocketer to the current session.
 	 */
 	public void addPickpocketer(String playerName)
