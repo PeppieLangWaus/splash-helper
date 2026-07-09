@@ -13,7 +13,7 @@ A RuneLite plugin designed to assist with splashing, mostly focused on Ardy Knig
 - **Real-time session tracking** - Monitor casts, XP gained, rune costs, and more
 - **Session history** - Automatically saves and displays past splashing sessions
 - **Session deletion** - Right-click any session entry to delete unwanted sessions
-- **Detailed statistics** - Track player counts, knight movements, and pickpocketers
+- **Detailed statistics** - Track player counts, knight movements, pickpocketers, and nearby player deaths
 - **Persistent storage** - Session history is saved between plugin restarts (oldest sessions pruned once the configured limit is reached)
 - **Session resume** - A brief countdown lets a session resume automatically if you log back in or hop shortly after it ends, instead of starting a new one
 
@@ -51,7 +51,7 @@ When both **Knight Tile 1** and **Knight Tile 2** are set, the plugin automatica
 
 3. **Configuring Session Display**
    - Use plugin settings to choose which statistics to display
-   - Options include: spell, casts, XP gained, XP/hour, rune cost, player counts
+   - Options include: spell, casts, XP gained, XP/hour, rune cost, player counts, deaths
    - Toggle session history panel visibility
 
 ### Setting Up the Timer
@@ -132,7 +132,7 @@ All color settings support transparency via the alpha channel.
 
 ### Server Sync
 
-**Disabled by default.** Enabling Server Sync connects to a third-party Splash Helper server (splasher.help by default) and streams live session data, including your account username and session statistics — spell used, world, magic XP, rune usage and cost, spells cast, knight movements, nearby player counts, and timestamps. No data is sent while this setting is disabled.
+**Disabled by default.** Enabling Server Sync connects to a third-party Splash Helper server (splasher.help by default) and streams live session data, including your account username and session statistics — spell used, world, magic XP, rune usage and cost, spells cast, knight movements, nearby player counts, nearby player deaths, and timestamps. No data is sent while this setting is disabled.
 
 ## Author
 
