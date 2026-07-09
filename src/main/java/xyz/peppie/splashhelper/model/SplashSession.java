@@ -34,6 +34,9 @@ public class SplashSession
 	private int currentMagicXp;
 	@Setter
 	private int knightMovements = 0;
+	// Count of nearby players observed dying during this session
+	@Setter
+	private int playerDeaths = 0;
 	@Setter
 	private Instant endTime = null;
 
@@ -142,6 +145,11 @@ public class SplashSession
 	public void incrementKnightMovements()
 	{
 		knightMovements++;
+	}
+
+	public void incrementPlayerDeaths()
+	{
+		playerDeaths++;
 	}
 
 	/**

@@ -15,7 +15,8 @@ public enum OverallStatField
 	POTENTIAL_XP("Potential XP"),
 	GP_PER_HOUR("GP/Hour"),
 	CURRENT_PLAYERS("Current Players"),
-	HIGHEST_PLAYERS("Highest Players");
+	HIGHEST_PLAYERS("Highest Players"),
+	TOTAL_DEATHS("Total Deaths");
 
 	private final String displayName;
 

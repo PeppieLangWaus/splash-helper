@@ -25,6 +25,7 @@ import net.runelite.api.Tile;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.widgets.Widget;
@@ -1274,12 +1275,10 @@ public class SplashHelperPlugin extends Plugin
 	{
 		Actor actor = event.getActor();
 
-		// Check if local player is casting a spell
 		if (actor == client.getLocalPlayer())
 		{
 			int animationId = actor.getAnimation();
 			
-			// Common magic casting animation IDs
 			boolean isCasting = (animationId >= 711 && animationId <= 717) ||  // Standard spells
 							   (animationId >= 1162 && animationId <= 1167) || // Ancient spells
 							   (animationId >= 1978 && animationId <= 1993) || // Lunar spells
@@ -1287,7 +1286,6 @@ public class SplashHelperPlugin extends Plugin
 			
 			if (isCasting)
 			{
-				// Get who the player is currently interacting with
 				Actor interactingTarget = client.getLocalPlayer().getInteracting();
 				
 				if (interactingTarget != null && interactingTarget.getName() != null)
@@ -1298,17 +1296,13 @@ public class SplashHelperPlugin extends Plugin
 					if (configuredNpc != null && !configuredNpc.isEmpty() &&
 						targetName != null && targetName.equalsIgnoreCase(configuredNpc))
 					{
-						// Track the knight being cast at on every cast (not just when a
-						// session starts) so its type (sticky/normal) is always known.
 						tileManager.setCurrentTarget(interactingTarget);
 
-						// Start timer if not already running (first interaction only, not after expiry)
 						if (timerEnd == null && !hasNotified)
 						{
 							startTimer();
 							log.debug("Timer and session started by detecting spell animation on {} (animation: {})", targetName, animationId);
 						}
-						// Start a new session if previous one timed out but timer is still running
 						else if (!sessionManager.hasActiveSession() && config.enableStatistics())
 						{
 							startSession(config.selectedSpell());
@@ -1343,6 +1337,21 @@ public class SplashHelperPlugin extends Plugin
 							sessionManager.addPickpocketer(playerName);
 						}
 					}
+				}
+
+			}
+			// Count nearby players that die during an active session
+			if (animationId == AnimationID.HUMAN_DEATH && sessionManager.hasActiveSession())
+			{
+				Player localPlayer = client.getLocalPlayer();
+				WorldPoint playerPos = player.getWorldLocation();
+				WorldPoint localPos = localPlayer != null ? localPlayer.getWorldLocation() : null;
+
+				if (playerPos != null && localPos != null
+					&& localPos.distanceTo(playerPos) <= config.playerCountRadius())
+				{
+					sessionManager.recordPlayerDeath();
+					log.debug("Nearby player death detected: {}", player.getName());
 				}
 			}
 		}

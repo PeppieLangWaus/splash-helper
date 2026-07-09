@@ -13,7 +13,8 @@ public enum SessionStatField
 	XP_PER_HOUR("XP/Hour"),
 	RUNE_COST("Rune Cost"),
 	NEARBY_PLAYERS("Nearby Players"),
-	HIGHEST_PLAYERS("Highest Players");
+	HIGHEST_PLAYERS("Highest Players"),
+	PLAYER_DEATHS("Deaths");
 
 	private final String displayName;
 
