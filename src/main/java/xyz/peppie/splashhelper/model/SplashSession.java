@@ -65,6 +65,12 @@ public class SplashSession
 	@Setter
 	private long runeCostGp = 0;  // Total GP cost of runes used
 
+	// Whether this finalized session has been successfully sent to the sync server.
+	// Defaults to false (and stays false when server sync is off, which is fine since
+	// pruning only consults this flag while server sync is enabled).
+	@Setter
+	private boolean synced = false;
+
 	public SplashSession(String playerName, SplashSpell spell, Instant logoutTime, int world, boolean stickyKnight, int startMagicXp)
 	{
 		this.playerName = playerName;

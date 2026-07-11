@@ -282,7 +282,21 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         javax.swing.JButton actionButton = new javax.swing.JButton();
         actionButton.setFocusPainted(false);
         actionButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        rightPanel.add(actionButton, BorderLayout.EAST);
+
+        javax.swing.JButton resetTokenButton = new javax.swing.JButton("Reset Token");
+        resetTokenButton.setFocusPainted(false);
+        resetTokenButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        resetTokenButton.setToolTipText("Clear the stored sync token and reconnect as a new player. "
+            + "Use this if sync keeps failing because this client is now playing a different account.");
+        resetTokenButton.addActionListener(e -> onResetTokenButtonClicked(statusLabel, actionButton));
+
+        JPanel buttonsPanel = new JPanel();
+        buttonsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        buttonsPanel.setLayout(new BoxLayout(buttonsPanel, BoxLayout.X_AXIS));
+        buttonsPanel.add(resetTokenButton);
+        buttonsPanel.add(javax.swing.Box.createHorizontalStrut(5));
+        buttonsPanel.add(actionButton);
+        rightPanel.add(buttonsPanel, BorderLayout.EAST);
 
         // Initial state
         updateSyncPanelState(statusLabel, actionButton);
@@ -411,6 +425,30 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             });
             pollTimer.start();
         }
+    }
+
+    private void onResetTokenButtonClicked(JLabel statusLabel, javax.swing.JButton actionButton)
+    {
+        int result = JOptionPane.showConfirmDialog(this,
+            "This disconnects from the sync server and generates a brand-new sync token.\n"
+            + "Use this if the connection keeps failing because this client is now playing a\n"
+            + "different account than the one the stored token was set up for — including\n"
+            + "after copying a RuneLite profile, which copies the old token along with it.\n\n"
+            + "The new token starts a separate server-side identity: any history already\n"
+            + "synced to the server under the OLD token will NOT be linked to the new one\n"
+            + "and you will need to go through setup (new setup link) again. Your local\n"
+            + "session history in this panel is not affected, but if you want a backup of\n"
+            + "it before resetting, use the export (↓) button at the top of this panel first.\n\n"
+            + "Continue with the reset?",
+            "Reset Sync Token", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+        if (result != JOptionPane.YES_OPTION)
+        {
+            return;
+        }
+
+        webSocketClient.resetToken();
+        SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton));
     }
 
     private JLabel createIconButton(ImageIcon icon, String tooltip)

@@ -248,11 +248,24 @@ public interface SplashHelperConfig extends Config
 		return 5;
 	}
 
+	@ConfigItem(
+		keyName = "enableSessionPruning",
+		name = "Prune Old Sessions",
+		description = "Automatically delete the oldest local sessions once the count below is exceeded. "
+			+ "Disabled by default so sessions are never lost. If Server Sync is also enabled, a session "
+			+ "is only pruned after it has been successfully synced to the server.",
+		section = statisticsSection
+	)
+	default boolean enableSessionPruning()
+	{
+		return false;
+	}
+
 	@Range(min = 1, max = 10000)
 	@ConfigItem(
 		keyName = "maxStoredSessions",
 		name = "Sessions Kept On Disk",
-		description = "Maximum number of finished sessions kept in local history; older sessions are pruned. With Server Sync enabled the server retains the full history.",
+		description = "Maximum number of finished sessions kept in local history before pruning kicks in. Only takes effect when Prune Old Sessions is enabled.",
 		section = statisticsSection
 	)
 	default int maxStoredSessions()

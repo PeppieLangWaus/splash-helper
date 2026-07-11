@@ -51,7 +51,7 @@ public class PersistedSession
 			.sessionId(UUID.randomUUID().toString())
 			.createdTimestamp(session.getStartTime().toEpochMilli())
 			.finalizedTimestamp(session.getEndTime() != null ? session.getEndTime().toEpochMilli() : Instant.now().toEpochMilli())
-			.syncedToServer(false)
+			.syncedToServer(session.isSynced())
 			.session(session)
 			.build();
 	}
