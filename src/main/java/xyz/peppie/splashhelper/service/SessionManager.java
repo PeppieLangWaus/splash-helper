@@ -448,17 +448,18 @@ public class SessionManager
 
 	/**
 	 * Save session history to persistent storage.
-	 * Prunes the oldest sessions beyond the configured on-disk retention count
-	 * (with server sync enabled the server retains the full history).
+	 * If pruning is enabled, removes the oldest sessions beyond the configured on-disk
+	 * retention count. A session is only ever pruned once it is confirmed synced to the
+	 * server (or immediately if server sync is disabled), so enabling sync never races
+	 * with pruning to lose data that hasn't reached the server yet.
 	 */
 	private void saveSessionHistory()
 	{
 		try
 		{
-			int maxStored = Math.max(1, config.maxStoredSessions());
-			while (sessionHistory.size() > maxStored)
+			if (config.enableSessionPruning())
 			{
-				sessionHistory.remove(0);
+				pruneSessionHistory();
 			}
 
 			// Convert sessions to persisted format
@@ -510,11 +511,9 @@ public class SessionManager
 					}
 				}
 
-				// Only keep the configured number of most recent sessions
-				int maxStored = Math.max(1, config.maxStoredSessions());
-				if (sessionHistory.size() > maxStored)
+				if (config.enableSessionPruning())
 				{
-					sessionHistory.subList(0, sessionHistory.size() - maxStored).clear();
+					pruneSessionHistory();
 				}
 
 				log.debug("Loaded {} sessions from persistent storage", sessionHistory.size());
@@ -524,6 +523,47 @@ public class SessionManager
 		{
 			log.error("Failed to load session history", e);
 		}
+	}
+
+	/**
+	 * Trim {@link #sessionHistory} down to the configured retention count, oldest first.
+	 * A session is only removed once it is safe to lose: either server sync is disabled
+	 * entirely, or the session has been confirmed synced to the server. Pruning stops as
+	 * soon as it reaches a session that isn't synced yet, so unsynced sessions are never
+	 * silently deleted out from under an in-progress (or not-yet-attempted) sync.
+	 */
+	private void pruneSessionHistory()
+	{
+		int maxStored = Math.max(1, config.maxStoredSessions());
+		boolean requireSync = config.enableServerSync();
+		while (sessionHistory.size() > maxStored)
+		{
+			SplashSession oldest = sessionHistory.get(0);
+			if (requireSync && !oldest.isSynced())
+			{
+				log.debug("Pausing session pruning: oldest session for {} is not yet synced to server", oldest.getPlayerName());
+				break;
+			}
+			sessionHistory.remove(0);
+		}
+	}
+
+	/**
+	 * Finalized sessions in history that have not yet been confirmed synced to the server.
+	 * Used to retry SESSION_END delivery after a (re)connect so pruning can eventually
+	 * catch up on sessions that were finalized while offline.
+	 */
+	public List<SplashSession> getUnsyncedSessions()
+	{
+		List<SplashSession> unsynced = new ArrayList<>();
+		for (SplashSession session : sessionHistory)
+		{
+			if (!session.isSynced())
+			{
+				unsynced.add(session);
+			}
+		}
+		return unsynced;
 	}
 
 	/**

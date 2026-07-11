@@ -204,6 +204,41 @@ public class SplashWebSocketClient
 	}
 
 	/**
+	 * Clears the persisted player token and reconnects, causing a brand-new token (and
+	 * therefore a fresh server-side account link) to be generated. Use this to recover
+	 * when the stored token is bound to a different account — e.g. after switching which
+	 * OSRS account plays through this RuneLite client — which otherwise causes every
+	 * connection attempt to fail authentication with the old, mismatched token.
+	 */
+	public void resetToken()
+	{
+		String username = activeUsername;
+		reconnectScheduled.set(false);
+		reconnectAttempts = 0;
+		pendingSessionStart = null;
+		setupLink = null;
+		setupLinkExpiry = 0;
+		lastAuthSetupRequired = null;
+
+		// Tear down any existing connection and drop the stored token on the executor
+		// thread, so a reconnect queued right after this is guaranteed to run after the
+		// token has actually been cleared (single-threaded executor preserves order).
+		executor().execute(() -> {
+			doDisconnect();
+			configManager.unsetConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+			log.info("Player token reset; a new one will be generated on next connect");
+		});
+
+		if (username != null)
+		{
+			// Force connect() past its "already connected/connecting as this user" guard,
+			// since activeUsername hasn't changed but the underlying token has.
+			activeUsername = null;
+			connect(username);
+		}
+	}
+
+	/**
 	 * Returns true if a setup link has been received and its JWT has not expired.
 	 */
 	public boolean isSetupLinkValid()
@@ -286,7 +321,11 @@ public class SplashWebSocketClient
 		});
 	}
 
-	/** Send a SESSION_END message for the given finalized session. */
+	/**
+	 * Send a SESSION_END message for the given finalized session.
+	 * On successful handoff to the socket, marks the session as synced so local pruning
+	 * (see SessionManager) knows it is now safe to delete once it ages out of retention.
+	 */
 	public void sendSessionEnd(SplashSession session)
 	{
 		// Check connected (not authenticated) — disconnect() clears authenticated before
@@ -296,11 +335,45 @@ public class SplashWebSocketClient
 			return;
 		}
 		executor().execute(() -> {
+			WebSocket ws = webSocket;
+			if (ws == null || !connected.get())
+			{
+				return;
+			}
 			JsonObject msg = new JsonObject();
 			msg.addProperty("type", "SESSION_END");
 			msg.add("sessionData", buildSessionData(session));
-			sendJson(msg);
+			ws.sendText(gson.toJson(msg), true).whenComplete((result, ex) -> {
+				if (ex != null)
+				{
+					log.warn("WS send failed: {}", ex.getMessage());
+				}
+				else
+				{
+					session.setSynced(true);
+				}
+			});
 		});
+	}
+
+	/**
+	 * Re-send SESSION_END for any previously finalized sessions that haven't been
+	 * confirmed synced yet (e.g. they were finalized while disconnected). Called after a
+	 * successful (re)authentication so pruning can eventually catch up on them.
+	 */
+	public void resyncUnsyncedSessions(java.util.List<SplashSession> unsyncedSessions)
+	{
+		if (unsyncedSessions == null)
+		{
+			return;
+		}
+		for (SplashSession session : unsyncedSessions)
+		{
+			if (session != null && !session.isSynced())
+			{
+				sendSessionEnd(session);
+			}
+		}
 	}
 
 	// ==================== Internal helpers ====================
@@ -491,6 +564,11 @@ public class SplashWebSocketClient
 					{
 						// Fatal auth failures should halt reconnect loops until user action.
 						intentionalDisconnect = true;
+						if ("Invalid token".equalsIgnoreCase(reason))
+						{
+							log.warn("Sync token appears to belong to a different account. "
+								+ "Use the 'Reset Token' button in the Splash Statistics panel to fix this.");
+						}
 					}
 					break;
 

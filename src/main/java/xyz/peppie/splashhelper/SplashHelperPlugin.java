@@ -331,6 +331,12 @@ public class SplashHelperPlugin extends Plugin
 				{
 					webSocketClient.sendSessionStart(session);
 				}
+				// Retry any finalized sessions that never got confirmed synced (e.g. finalized
+				// while offline), so they eventually become eligible for local pruning.
+				if (config.enableServerSync())
+				{
+					webSocketClient.resyncUnsyncedSessions(sessionManager.getUnsyncedSessions());
+				}
 			});
 		});
 
