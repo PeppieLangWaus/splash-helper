@@ -53,8 +53,12 @@ import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import net.runelite.client.input.KeyListener;
 import net.runelite.client.input.KeyManager;
+import net.runelite.client.input.MouseAdapter;
+import net.runelite.client.input.MouseManager;
+import net.runelite.client.input.MouseListener;
 import net.runelite.client.config.ModifierlessKeybind;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 
 import xyz.peppie.splashhelper.overlays.BoundaryTileOverlay;
 import xyz.peppie.splashhelper.overlays.GriefPreventionOverlay;
@@ -153,7 +157,10 @@ public class SplashHelperPlugin extends Plugin
 
 	@Inject
 	private KeyManager keyManager;
-	
+
+	@Inject
+	private MouseManager mouseManager;
+
 	@Inject
 	private ClientThread clientThread;
 
@@ -286,6 +293,7 @@ public class SplashHelperPlugin extends Plugin
 		keyManager.registerKeyListener(safetyModeKeyListener);
 		keyManager.registerKeyListener(guideKeyListener);
 		keyManager.registerKeyListener(timerResetKeyListener);
+		mouseManager.registerMouseListener(timerResetMouseListener);
 
 
 		// Load safety mode state from config
@@ -365,6 +373,7 @@ public class SplashHelperPlugin extends Plugin
 		keyManager.unregisterKeyListener(safetyModeKeyListener);
 		keyManager.unregisterKeyListener(guideKeyListener);
 		keyManager.unregisterKeyListener(timerResetKeyListener);
+		mouseManager.unregisterMouseListener(timerResetMouseListener);
 		guideEngine.stop();
 		if (navButton != null)
 		{
@@ -1486,11 +1495,14 @@ public class SplashHelperPlugin extends Plugin
 	 * switching sidebar tabs remain available (so items can still be
 	 * examined, menus closed, an item picked up for use, and the interface
 	 * panel switched); actually applying a selected item to another
-	 * item/object/NPC/player/ground item, and switching to the Grouping tab
-	 * (chat channel / your clan / view another clan / grouping) specifically,
-	 * stay blocked. This plugin's own right-click entries also remain
-	 * available. Continuous autocast splashing is unaffected because it does
-	 * not fire menu clicks.
+	 * item/object/NPC/player/ground item stays blocked no matter what the
+	 * target is (e.g. using an item on the Ardougne knight would otherwise
+	 * walk the player to it), except clicking the selected item itself
+	 * again, which cancels the selection rather than applying it and so
+	 * stays allowed. Switching to the Grouping tab (chat channel / your clan
+	 * / view another clan / grouping) specifically also stays blocked. This
+	 * plugin's own right-click entries also remain available. Continuous
+	 * autocast splashing is unaffected because it does not fire menu clicks.
 	 */
 	private boolean shouldBlockAction(MenuOptionClicked event)
 	{
@@ -1532,6 +1544,27 @@ public class SplashHelperPlugin extends Plugin
 		if (lower.equals("use") && !isUseOnTargetAction(action))
 		{
 			return true;
+		}
+		if (isUseOnTargetAction(action))
+		{
+			// Clicking the already-selected item again cancels the selection
+			// instead of applying it; that click fires the exact same menu
+			// action as a real "use on X", so it must be allowed here or a
+			// selected item could never be deselected while safety mode is on.
+			Widget selectedWidget = client.getSelectedWidget();
+			Widget targetWidget = event.getMenuEntry().getWidget();
+			if (selectedWidget != null && targetWidget != null
+				&& selectedWidget.getIndex() == targetWidget.getIndex()
+				&& selectedWidget.getItemId() == targetWidget.getItemId())
+			{
+				return true;
+			}
+
+			// Applying a selected item to anything else - another item, an
+			// object, an NPC (e.g. walking to and using it on the Ardougne
+			// knight), a player or a ground item - actually performs the
+			// action, so it stays blocked no matter what the target is.
+			return false;
 		}
 
 		// Attacking/casting at a knight is allowed only for the exact NPC this
@@ -1730,6 +1763,27 @@ public class SplashHelperPlugin extends Plugin
 		@Override
 		public void keyReleased(KeyEvent e)
 		{
+		}
+	};
+
+	/**
+	 * Global mouse listener that mirrors OSRS's combat idle timer: right-clicking
+	 * anywhere on the game window (even just to open a context menu, without
+	 * selecting an option) resets it, so it resets the splash timer too.
+	 * Observation only — events are never consumed.
+	 */
+	private final MouseListener timerResetMouseListener = new MouseAdapter()
+	{
+		@Override
+		public MouseEvent mousePressed(MouseEvent e)
+		{
+			if (e.getButton() == MouseEvent.BUTTON3)
+			{
+				// resetTimer() no-ops when the timer is not running, so idle
+				// right-clicks (e.g. in the bank) never start a timer or session.
+				clientThread.invokeLater(SplashHelperPlugin.this::resetTimer);
+			}
+			return e;
 		}
 	};
 }
