@@ -1,8 +1,19 @@
 package xyz.peppie.splashhelper.service;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import com.google.gson.Gson;
@@ -17,6 +28,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Skill;
+import net.runelite.client.RuneLite;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import xyz.peppie.splashhelper.SplashHelperConfig;
@@ -40,6 +52,9 @@ public class SessionManager
 	private final SplashHelperConfig config;
 	private final Gson gson;
 
+	/** The RSN whose history is currently loaded into {@link #sessionHistory}, or null if none is loaded yet. */
+	private String currentHistoryUsername = null;
+
 	@Getter
 	private SplashSession currentSession = null;
 
@@ -52,7 +67,14 @@ public class SessionManager
 	private int lastCastTick = -1;
 	private int lastMagicXp = -1;
 
-	private static final String SESSION_HISTORY_KEY = "splashhelper_session_history";
+	private static final File HISTORY_DIR = new File(RuneLite.RUNELITE_DIR, "splashhelper");
+
+	/** Pre-per-user shared history file, produced by an earlier version of this plugin. Migrated on startup. */
+	private static final File LEGACY_SHARED_HISTORY_FILE = new File(HISTORY_DIR, "session-history.json");
+
+	/** Even older history storage, in RSProfile config (limited to 100kb values). Migrated on startup. */
+	private static final String LEGACY_CONFIG_GROUP = "splashhelper";
+	private static final String LEGACY_CONFIG_KEY = "splashhelper_session_history";
 
 	/** A recently finalized session that can be resumed if the same player returns quickly. */
 	/* volatile: read from the Swing EDT for the resume-window countdown */
@@ -88,9 +110,33 @@ public class SessionManager
 			.registerTypeAdapter(Instant.class, new InstantSerializer())
 			.registerTypeAdapter(Instant.class, new InstantDeserializer())
 			.create();
-		
-		// Load persisted session history on startup
-		loadSessionHistory();
+
+		// One-time migration of history from older storage schemes into per-user files.
+		// The current player's history is then loaded lazily once their RSN is known
+		// (see ensureHistoryLoadedForUser), since it isn't available at construction time.
+		migrateLegacyHistory();
+	}
+
+	/**
+	 * Load (or switch to) the session history for the given RSN if it isn't already loaded.
+	 * Safe to call repeatedly, e.g. on every login/hop, since a matching username is a no-op.
+	 */
+	public void ensureHistoryLoadedForUser(String username)
+	{
+		if (username == null || username.trim().isEmpty())
+		{
+			return;
+		}
+
+		String normalized = username.trim();
+		if (currentHistoryUsername != null && currentHistoryUsername.equalsIgnoreCase(normalized))
+		{
+			return;
+		}
+
+		currentHistoryUsername = normalized;
+		loadHistoryForCurrentUser();
+		log.debug("Loaded session history for {}", currentHistoryUsername);
 	}
 
 	/**
@@ -100,6 +146,8 @@ public class SessionManager
 	public void startSession(String playerName, SplashSpell spell, Instant logoutTime,
 							 int world, boolean stickyKnight)
 	{
+		ensureHistoryLoadedForUser(playerName);
+
 		// Resume the last session if the same player returns within the resume window
 		long resumeWindowMs = (long) config.sessionResumeWindowSeconds() * 1000;
 		if (resumeWindowMs > 0
@@ -447,7 +495,7 @@ public class SessionManager
 	}
 
 	/**
-	 * Save session history to persistent storage.
+	 * Save session history to the current user's file on disk.
 	 * If pruning is enabled, removes the oldest sessions beyond the configured on-disk
 	 * retention count. A session is only ever pruned once it is confirmed synced to the
 	 * server (or immediately if server sync is disabled), so enabling sync never races
@@ -455,73 +503,250 @@ public class SessionManager
 	 */
 	private void saveSessionHistory()
 	{
-		try
+		if (currentHistoryUsername == null)
 		{
-			if (config.enableSessionPruning())
-			{
-				pruneSessionHistory();
-			}
-
-			// Convert sessions to persisted format
-			List<PersistedSession> persistedSessions = new ArrayList<>();
-			for (SplashSession session : sessionHistory)
-			{
-				persistedSessions.add(PersistedSession.fromSession(session));
-			}
-
-			// Serialize to JSON and save to config
-			String json = gson.toJson(persistedSessions);
-			configManager.setConfiguration("splashhelper", SESSION_HISTORY_KEY, json);
-			
-			log.debug("Saved {} sessions to persistent storage", sessionHistory.size());
+			log.debug("Skipping session history save - no user loaded yet");
+			return;
 		}
-		catch (Exception e)
+
+		if (config.enableSessionPruning())
 		{
-			log.error("Failed to save session history", e);
+			pruneSessionHistory();
+		}
+
+		List<PersistedSession> persistedSessions = new ArrayList<>();
+		for (SplashSession session : sessionHistory)
+		{
+			persistedSessions.add(PersistedSession.fromSession(session));
+		}
+
+		writePersistedSessionsToFile(historyFileFor(currentHistoryUsername), persistedSessions);
+		log.debug("Saved {} sessions to persistent storage for {}", sessionHistory.size(), currentHistoryUsername);
+	}
+
+	/**
+	 * Load history for {@link #currentHistoryUsername} from its per-user file into {@link #sessionHistory}.
+	 */
+	private void loadHistoryForCurrentUser()
+	{
+		sessionHistory.clear();
+
+		List<PersistedSession> persistedSessions = readPersistedSessionsFromFile(historyFileFor(currentHistoryUsername));
+		for (PersistedSession persisted : persistedSessions)
+		{
+			if (persisted.getSession() != null)
+			{
+				sessionHistory.add(persisted.getSession());
+			}
+		}
+
+		if (config.enableSessionPruning())
+		{
+			pruneSessionHistory();
 		}
 	}
 
 	/**
-	 * Load session history from persistent storage.
+	 * The per-user history file for a given RSN. Usernames are case-insensitive in-game,
+	 * so the filename is normalized to avoid two files for the same account.
 	 */
-	private void loadSessionHistory()
+	private static File historyFileFor(String username)
+	{
+		return new File(HISTORY_DIR, "session-history-" + sanitizeUsernameForFilename(username) + ".json");
+	}
+
+	private static String sanitizeUsernameForFilename(String username)
+	{
+		String normalized = username.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_");
+		return normalized.isEmpty() ? "unknown" : normalized;
+	}
+
+	/**
+	 * Read a list of persisted sessions from a JSON file, or an empty list if it doesn't
+	 * exist, is empty, or fails to parse.
+	 */
+	private List<PersistedSession> readPersistedSessionsFromFile(File file)
 	{
 		try
 		{
-			String json = configManager.getConfiguration("splashhelper", SESSION_HISTORY_KEY);
-			if (json == null || json.trim().isEmpty())
+			if (!file.isFile())
 			{
-				log.debug("No persisted session history found");
-				return;
+				return new ArrayList<>();
 			}
 
-			// Deserialize from JSON
+			String json = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+			if (json.trim().isEmpty())
+			{
+				return new ArrayList<>();
+			}
+
 			java.lang.reflect.Type type = new TypeToken<List<PersistedSession>>(){}.getType();
 			List<PersistedSession> persistedSessions = gson.fromJson(json, type);
-
-			if (persistedSessions != null)
-			{
-				// Convert back to regular sessions
-				sessionHistory.clear();
-				for (PersistedSession persisted : persistedSessions)
-				{
-					if (persisted.getSession() != null)
-					{
-						sessionHistory.add(persisted.getSession());
-					}
-				}
-
-				if (config.enableSessionPruning())
-				{
-					pruneSessionHistory();
-				}
-
-				log.debug("Loaded {} sessions from persistent storage", sessionHistory.size());
-			}
+			return persistedSessions != null ? persistedSessions : new ArrayList<>();
 		}
 		catch (Exception e)
 		{
-			log.error("Failed to load session history", e);
+			log.error("Failed to read session history from {}", file, e);
+			return new ArrayList<>();
+		}
+	}
+
+	/**
+	 * Write a list of persisted sessions to a JSON file, via a temp file + atomic move so a
+	 * crash mid-write can't leave a corrupt/truncated history file behind.
+	 */
+	private void writePersistedSessionsToFile(File file, List<PersistedSession> persistedSessions)
+	{
+		try
+		{
+			File parentDir = file.getParentFile();
+			Files.createDirectories(parentDir.toPath());
+
+			String json = gson.toJson(persistedSessions);
+			File tempFile = File.createTempFile("session-history", ".tmp", parentDir);
+			Files.write(tempFile.toPath(), json.getBytes(StandardCharsets.UTF_8));
+			Files.move(tempFile.toPath(), file.toPath(),
+				StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+		}
+		catch (IOException e)
+		{
+			log.error("Failed to write session history to {}", file, e);
+		}
+	}
+
+	/**
+	 * One-time migration of session history from older storage schemes (RSProfile config,
+	 * then a single shared local file) into the current per-user local files. Each legacy
+	 * session is routed to the file matching its own recorded player name, since a single
+	 * legacy blob may contain sessions for more than one account.
+	 */
+	private void migrateLegacyHistory()
+	{
+		migrateLegacyConfigHistory();
+		migrateLegacySharedFileHistory();
+	}
+
+	private void migrateLegacyConfigHistory()
+	{
+		try
+		{
+			String json = configManager.getConfiguration(LEGACY_CONFIG_GROUP, LEGACY_CONFIG_KEY);
+			if (json == null || json.trim().isEmpty())
+			{
+				return;
+			}
+
+			java.lang.reflect.Type type = new TypeToken<List<PersistedSession>>(){}.getType();
+			List<PersistedSession> legacySessions = gson.fromJson(json, type);
+			if (legacySessions != null && !legacySessions.isEmpty())
+			{
+				distributeSessionsToUserFiles(legacySessions);
+				log.info("Migrated {} session(s) from RSProfile config storage to per-user local files", legacySessions.size());
+			}
+
+			configManager.unsetConfiguration(LEGACY_CONFIG_GROUP, LEGACY_CONFIG_KEY);
+		}
+		catch (Exception e)
+		{
+			log.error("Failed to migrate legacy config-based session history", e);
+		}
+	}
+
+	private void migrateLegacySharedFileHistory()
+	{
+		if (!LEGACY_SHARED_HISTORY_FILE.isFile())
+		{
+			return;
+		}
+
+		try
+		{
+			List<PersistedSession> legacySessions = readPersistedSessionsFromFile(LEGACY_SHARED_HISTORY_FILE);
+			if (!legacySessions.isEmpty())
+			{
+				distributeSessionsToUserFiles(legacySessions);
+				log.info("Migrated {} session(s) from shared local history file to per-user files", legacySessions.size());
+			}
+		}
+		finally
+		{
+			try
+			{
+				Files.deleteIfExists(LEGACY_SHARED_HISTORY_FILE.toPath());
+			}
+			catch (IOException e)
+			{
+				log.error("Failed to remove migrated legacy shared history file", e);
+			}
+		}
+	}
+
+	/**
+	 * Merge a batch of legacy persisted sessions into the appropriate per-user files,
+	 * grouped by each session's own recorded player name, deduplicated by session ID.
+	 */
+	private void distributeSessionsToUserFiles(List<PersistedSession> legacySessions)
+	{
+		Map<String, List<PersistedSession>> byUser = new LinkedHashMap<>();
+		for (PersistedSession persisted : legacySessions)
+		{
+			String name = persisted.getSession() != null ? persisted.getSession().getPlayerName() : null;
+			String key = (name == null || name.trim().isEmpty()) ? "unknown" : name.trim();
+			byUser.computeIfAbsent(key, k -> new ArrayList<>()).add(persisted);
+		}
+
+		for (Map.Entry<String, List<PersistedSession>> entry : byUser.entrySet())
+		{
+			File targetFile = historyFileFor(entry.getKey());
+			List<PersistedSession> merged = readPersistedSessionsFromFile(targetFile);
+
+			Set<String> existingIds = new HashSet<>();
+			for (PersistedSession persisted : merged)
+			{
+				if (persisted.getSessionId() != null)
+				{
+					existingIds.add(persisted.getSessionId());
+				}
+			}
+
+			for (PersistedSession persisted : entry.getValue())
+			{
+				if (persisted.getSessionId() == null || existingIds.add(persisted.getSessionId()))
+				{
+					merged.add(persisted);
+				}
+			}
+
+			merged.sort(Comparator.comparingLong(PersistedSession::getCreatedTimestamp));
+			prunePersistedSessions(merged);
+
+			writePersistedSessionsToFile(targetFile, merged);
+		}
+	}
+
+	/**
+	 * Same retention policy as {@link #pruneSessionHistory()} (opt-in, sync-aware), applied
+	 * to an arbitrary oldest-first list of {@link PersistedSession} rather than the live
+	 * {@link #sessionHistory} field. Used when merging migrated history for an account that
+	 * may not be the currently loaded user.
+	 */
+	private void prunePersistedSessions(List<PersistedSession> sessions)
+	{
+		if (!config.enableSessionPruning())
+		{
+			return;
+		}
+
+		int maxStored = Math.max(1, config.maxStoredSessions());
+		boolean requireSync = config.enableServerSync();
+		while (sessions.size() > maxStored)
+		{
+			PersistedSession oldest = sessions.get(0);
+			if (requireSync && !oldest.isSyncedToServer())
+			{
+				break;
+			}
+			sessions.remove(0);
 		}
 	}
 
