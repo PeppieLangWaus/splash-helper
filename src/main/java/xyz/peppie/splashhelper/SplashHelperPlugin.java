@@ -413,8 +413,8 @@ public class SplashHelperPlugin extends Plugin
 		// (not when teleporting, which also triggers LOGGED_IN)
 		if (currentState == GameState.LOGGED_IN)
 		{
-			if (config.enableWelcomeMessage() && 
-				(previousGameState == GameState.LOGIN_SCREEN || 
+			if (config.enableWelcomeMessage() &&
+				(previousGameState == GameState.LOGIN_SCREEN ||
 				 previousGameState == GameState.HOPPING ||
 				 previousGameState == GameState.LOGGING_IN))
 			{
@@ -592,6 +592,15 @@ public class SplashHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		// getLocalPlayer() can still be null on the tick GameStateChanged reports
+		// LOGGED_IN, so re-check here every tick; this is a no-op once the right
+		// user's history is already loaded.
+		Player tickLocalPlayer = client.getLocalPlayer();
+		if (tickLocalPlayer != null)
+		{
+			sessionManager.ensureHistoryLoadedForUser(tickLocalPlayer.getName());
+		}
+
 		attemptPendingServerConnection();
 		checkTimerExpiration();
 		checkHpThreshold();
