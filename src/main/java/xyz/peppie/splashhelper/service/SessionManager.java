@@ -120,6 +120,7 @@ public class SessionManager
 	/**
 	 * Load (or switch to) the session history for the given RSN if it isn't already loaded.
 	 * Safe to call repeatedly, e.g. on every login/hop, since a matching username is a no-op.
+	 * If switching to a different user, any active session for the previous user is finalized first.
 	 */
 	public void ensureHistoryLoadedForUser(String username)
 	{
@@ -132,6 +133,13 @@ public class SessionManager
 		if (currentHistoryUsername != null && currentHistoryUsername.equalsIgnoreCase(normalized))
 		{
 			return;
+		}
+
+		// Finalize any active session before switching users, to prevent cross-account
+		// session pollution when multiple accounts are logged in simultaneously.
+		if (currentSession != null && currentSession.isActive())
+		{
+			finalizeSession(false);
 		}
 
 		currentHistoryUsername = normalized;
@@ -526,24 +534,70 @@ public class SessionManager
 
 	/**
 	 * Load history for {@link #currentHistoryUsername} from its per-user file into {@link #sessionHistory}.
+	 * Deduplicates sessions by comparing actual session data to handle corrupted history files.
 	 */
 	private void loadHistoryForCurrentUser()
 	{
 		sessionHistory.clear();
 
 		List<PersistedSession> persistedSessions = readPersistedSessionsFromFile(historyFileFor(currentHistoryUsername));
+
+		// Deduplicate by session content (not ID, since duplicates can have different UUIDs)
+		Set<String> seenSessionHashes = new HashSet<>();
+		List<PersistedSession> dedupedSessions = new ArrayList<>();
+		boolean hadDuplicates = false;
+
 		for (PersistedSession persisted : persistedSessions)
 		{
 			if (persisted.getSession() != null)
 			{
-				sessionHistory.add(persisted.getSession());
+				SplashSession session = persisted.getSession();
+				// Hash based on the actual session data (player, timestamps, stats)
+				// This catches exact duplicates even if they have different session IDs
+				String sessionHash = createSessionHash(session);
+
+				if (!seenSessionHashes.add(sessionHash))
+				{
+					// Duplicate found (same data, possibly different ID), skip it
+					hadDuplicates = true;
+					log.debug("Skipped duplicate session data during load: {} from {} to {}",
+						session.getPlayerName(), session.getStartTime(), session.getEndTime());
+				}
+				else
+				{
+					sessionHistory.add(session);
+					dedupedSessions.add(persisted);
+				}
 			}
+		}
+
+		// If we found and removed duplicates, rewrite the file to clean it up
+		if (hadDuplicates)
+		{
+			log.info("Detected {} duplicate session(s) in history file for {}; cleaning up...",
+				persistedSessions.size() - dedupedSessions.size(), currentHistoryUsername);
+			writePersistedSessionsToFile(historyFileFor(currentHistoryUsername), dedupedSessions);
 		}
 
 		if (config.enableSessionPruning())
 		{
 			pruneSessionHistory();
 		}
+	}
+
+	/**
+	 * Create a hash of session data for duplicate detection.
+	 * Two sessions with identical data (player, timestamps, stats) will produce the same hash.
+	 */
+	private String createSessionHash(SplashSession session)
+	{
+		// Use player name, start time, and end time to identify unique sessions
+		// This detects exact duplicates even if they have different session IDs
+		return session.getPlayerName() + "|" +
+			   session.getStartTime() + "|" +
+			   session.getEndTime() + "|" +
+			   session.getSpellsCast() + "|" +
+			   session.getStartMagicXp();
 	}
 
 	/**
