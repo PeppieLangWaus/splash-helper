@@ -177,6 +177,9 @@ public class SplashHelperPlugin extends Plugin
 	@Getter
 	private boolean safetyModeEnabled = false;
 
+	@Getter
+	private boolean overlaysVisible = true;
+
 	private boolean hasNotified = false;
 	
 	// Track previous game state for welcome message
@@ -291,6 +294,7 @@ public class SplashHelperPlugin extends Plugin
 
 		// Register key listeners
 		keyManager.registerKeyListener(safetyModeKeyListener);
+		keyManager.registerKeyListener(toggleOverlaysKeyListener);
 		keyManager.registerKeyListener(guideKeyListener);
 		keyManager.registerKeyListener(timerResetKeyListener);
 		mouseManager.registerMouseListener(timerResetMouseListener);
@@ -371,6 +375,7 @@ public class SplashHelperPlugin extends Plugin
 
 		// Unregister key listeners
 		keyManager.unregisterKeyListener(safetyModeKeyListener);
+		keyManager.unregisterKeyListener(toggleOverlaysKeyListener);
 		keyManager.unregisterKeyListener(guideKeyListener);
 		keyManager.unregisterKeyListener(timerResetKeyListener);
 		mouseManager.unregisterMouseListener(timerResetMouseListener);
@@ -1744,6 +1749,72 @@ public class SplashHelperPlugin extends Plugin
 	};
 
 	/**
+	 * Toggle visibility of all Splash Helper overlays on/off.
+	 */
+	public void toggleOverlaysVisible()
+	{
+		overlaysVisible = !overlaysVisible;
+		log.debug("Overlays toggled: {}", overlaysVisible ? "SHOWN" : "HIDDEN");
+
+		if (overlaysVisible)
+		{
+			overlayManager.add(overlay);
+			overlayManager.add(boundaryOverlay);
+			overlayManager.add(visualNotificationOverlay);
+			overlayManager.add(griefPreventionOverlay);
+			overlayManager.add(magicBonusWarningOverlay);
+			overlayManager.add(safetyModeOverlay);
+			overlayManager.add(guideSceneOverlay);
+			overlayManager.add(guideWidgetOverlay);
+			overlayManager.add(guidePanelOverlay);
+		}
+		else
+		{
+			overlayManager.remove(overlay);
+			overlayManager.remove(boundaryOverlay);
+			overlayManager.remove(visualNotificationOverlay);
+			overlayManager.remove(griefPreventionOverlay);
+			overlayManager.remove(magicBonusWarningOverlay);
+			overlayManager.remove(safetyModeOverlay);
+			overlayManager.remove(guideSceneOverlay);
+			overlayManager.remove(guideWidgetOverlay);
+			overlayManager.remove(guidePanelOverlay);
+		}
+
+		String message = overlaysVisible ?
+			"<col=00ff00>Splash Helper overlays SHOWN</col>" :
+			"<col=ff0000>Splash Helper overlays HIDDEN</col>";
+		clientThread.invoke(() -> client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", message, null));
+	}
+
+	/**
+	 * Key listener for the toggle-all-overlays hotkey.
+	 */
+	private final KeyListener toggleOverlaysKeyListener = new KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			ModifierlessKeybind hotkey = config.toggleOverlaysHotkey();
+			if (hotkey.matches(e))
+			{
+				toggleOverlaysVisible();
+				e.consume();
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+
+	/**
 	 * Global key listener that mirrors OSRS's combat idle timer: typing and
 	 * keyboard camera movement (arrow keys) reset it, so they reset the splash
 	 * timer too. Observation only — events are never consumed or synthesized.
@@ -1758,9 +1829,9 @@ public class SplashHelperPlugin extends Plugin
 		@Override
 		public void keyPressed(KeyEvent e)
 		{
-			// The safety-mode hotkey is consumed by safetyModeKeyListener and
-			// never reaches the game, so it must not reset the timer.
-			if (config.safetyModeHotkey().matches(e))
+			// The safety-mode and toggle-overlays hotkeys are consumed by their
+			// own listeners and never reach the game, so they must not reset the timer.
+			if (config.safetyModeHotkey().matches(e) || config.toggleOverlaysHotkey().matches(e))
 			{
 				return;
 			}
