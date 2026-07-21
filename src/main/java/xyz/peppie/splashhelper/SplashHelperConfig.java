@@ -455,6 +455,16 @@ public interface SplashHelperConfig extends Config
 		return new ModifierlessKeybind(KeyEvent.VK_MULTIPLY, 0);
 	}
 
+	@ConfigItem(
+		keyName = "toggleOverlaysHotkey",
+		name = "Toggle Overlays Hotkey",
+		description = "Hotkey to show/hide all Splash Helper overlays (default: Numlock /)"
+	)
+	default ModifierlessKeybind toggleOverlaysHotkey()
+	{
+		return new ModifierlessKeybind(KeyEvent.VK_DIVIDE, 0);
+	}
+
 	// ==================== Server Sync ====================
 
 	@ConfigSection(
