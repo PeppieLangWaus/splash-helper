@@ -392,9 +392,11 @@ public class SplashHelperPlugin extends Plugin
 		
 		// Finalize any active session
 		sessionManager.finalizeSession(false);
-		// Clear the resumable-session pointer so that a disable/enable cycle does not
-		// resume the just-finalized session, which would create duplicate history entries.
-		sessionManager.clearResumableSession();
+		// Finalize (and notify the backend of) any pending resumable session too - the
+		// plugin is shutting down and won't be around to observe its window lapsing, and
+		// leaving it in place would let a disable/enable cycle resume an already-reported
+		// session, creating duplicate history entries.
+		sessionManager.expireResumableSession();
 		
 		// Disconnect WebSocket (don't shutdown — singleton survives plugin disable/enable)
 		serverConnectPending = false;
@@ -609,6 +611,10 @@ public class SplashHelperPlugin extends Plugin
 		attemptPendingServerConnection();
 		checkTimerExpiration();
 		checkHpThreshold();
+
+		// Poll independently of world-view availability so a lapsed resume window is still
+		// reported to the backend while sitting at the login screen between hops/logouts.
+		sessionManager.checkResumableSessionExpiry();
 
 		if (client.getTopLevelWorldView() == null)
 		{

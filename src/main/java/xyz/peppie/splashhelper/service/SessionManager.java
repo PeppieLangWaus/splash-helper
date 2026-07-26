@@ -167,7 +167,9 @@ public class SessionManager
 			resumeSession(resumableSession, logoutTime, world);
 			return;
 		}
-		resumableSession = null;
+		// Window missed/expired without being caught by checkResumableSessionExpiry() yet
+		// (e.g. it lapsed on this very tick) - finalize it now instead of discarding silently.
+		expireResumableSession();
 		int startXp = client.getSkillExperience(Skill.MAGIC);
 		lastMagicXp = startXp;
 		lastCastTick = client.getTickCount();
@@ -266,10 +268,12 @@ public class SessionManager
 
 		// Only keep a finalized session resumable for short interruption flows.
 		long resumeWindowMs = (long) config.sessionResumeWindowSeconds() * 1000;
+		boolean stashedAsResumable = false;
 		if (allowResume && resumeWindowMs > 0)
 		{
 			resumableSession = toNotify;
 			resumableSessionExpiryMs = System.currentTimeMillis() + resumeWindowMs;
+			stashedAsResumable = true;
 		}
 		else
 		{
@@ -281,9 +285,12 @@ public class SessionManager
 		lastMagicXp = -1;
 		lastCastTick = -1;
 
-		// Always notify the backend the session ended, regardless of whether it was
-		// persisted locally. The backend must remove it from the active splashers list.
-		if (sessionFinalizedCallback != null)
+		// Notify the backend only once the session is truly done, regardless of whether it
+		// was persisted locally. A session stashed as resumable is NOT reported yet - it may
+		// still be resumed by the same player - it is reported later by
+		// checkResumableSessionExpiry()/expireResumableSession() once the window lapses (or
+		// the plugin shuts down) without a resume happening.
+		if (!stashedAsResumable && sessionFinalizedCallback != null)
 		{
 			sessionFinalizedCallback.accept(toNotify);
 		}
@@ -492,14 +499,33 @@ public class SessionManager
 	}
 
 	/**
-	 * Clear the resumable session without fully resetting.
-	 * Called on plugin shutdown to prevent disable/enable cycles from resuming
-	 * an already-finalized session (which would create duplicate history entries).
+	 * Poll whether a pending resumable session's window has lapsed and, if so, finalize
+	 * it to the backend. Intended to be called regularly (e.g. every game tick) so
+	 * SESSION_END is still sent even if the player never returns to start a new session.
 	 */
-	public void clearResumableSession()
+	public void checkResumableSessionExpiry()
 	{
+		if (resumableSession != null && System.currentTimeMillis() >= resumableSessionExpiryMs)
+		{
+			expireResumableSession();
+		}
+	}
+
+	/**
+	 * Finalize any pending resumable session to the backend right now, without waiting
+	 * for its window to lapse naturally. Used when the window expiry is detected early
+	 * (e.g. missed on the same tick a new session would have resumed it) and on plugin
+	 * shutdown, where the resume window can no longer be observed expiring on its own.
+	 */
+	public void expireResumableSession()
+	{
+		SplashSession session = resumableSession;
 		resumableSession = null;
 		resumableSessionExpiryMs = 0;
+		if (session != null && sessionFinalizedCallback != null)
+		{
+			sessionFinalizedCallback.accept(session);
+		}
 	}
 
 	/**
@@ -837,7 +863,10 @@ public class SessionManager
 		List<SplashSession> unsynced = new ArrayList<>();
 		for (SplashSession session : sessionHistory)
 		{
-			if (!session.isSynced())
+			// Exclude a session still sitting in its resume window: it hasn't been reported
+			// to the backend as ended yet on purpose (it may still be resumed), so a
+			// reconnect happening mid-window must not prematurely notify it as finalized.
+			if (!session.isSynced() && session != resumableSession)
 			{
 				unsynced.add(session);
 			}
