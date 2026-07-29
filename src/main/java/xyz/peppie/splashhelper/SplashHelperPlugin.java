@@ -469,13 +469,16 @@ public class SplashHelperPlugin extends Plugin
 			return;
 		}
 
-		// Rebuild statistics panel when any statistics panel config changes
+		// Rebuild statistics panel when any statistics panel config changes, including
+		// enableServerSync — the Server Sync section is only added to the panel layout
+		// when that's on, so toggling it must rebuild the panel, not just reconnect/disconnect.
 		if (event.getKey().startsWith("overallStatFields") ||
 			event.getKey().startsWith("currentSessionFields") ||
 			event.getKey().startsWith("sessionHistoryFields") ||
 			event.getKey().equals("showOverallStats") ||
 			event.getKey().equals("showCurrentSession") ||
-			event.getKey().equals("showSessionHistory"))
+			event.getKey().equals("showSessionHistory") ||
+			event.getKey().equals("enableServerSync"))
 		{
 			if (statisticsPanel != null)
 			{
