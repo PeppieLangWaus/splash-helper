@@ -225,7 +225,10 @@ public class SplashWebSocketClient
 		// token has actually been cleared (single-threaded executor preserves order).
 		executor().execute(() -> {
 			doDisconnect();
-			configManager.unsetConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+			if (username != null)
+			{
+				configManager.unsetConfiguration(CONFIG_GROUP, tokenConfigKey(username));
+			}
 			log.info("Player token reset; a new one will be generated on next connect");
 		});
 
@@ -239,12 +242,26 @@ public class SplashWebSocketClient
 	}
 
 	/**
-	 * Returns the currently stored sync token, or null if none has been generated yet.
-	 * Non-destructive — unlike {@link #resetToken()}, this does not clear or regenerate it.
+	 * Returns the currently stored sync token for the active account, or null if none has
+	 * been generated yet. Non-destructive — unlike {@link #resetToken()}, this does not
+	 * clear or regenerate it.
 	 */
 	public String getCurrentToken()
 	{
-		return configManager.getConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+		String username = activeUsername;
+		if (username == null)
+		{
+			return null;
+		}
+		String token = configManager.getConfiguration(CONFIG_GROUP, tokenConfigKey(username));
+		if (token == null || token.trim().isEmpty())
+		{
+			// Not yet migrated to the per-account key (e.g. no connection attempt has run
+			// since upgrading) — fall back to the legacy shared token so Copy Token still
+			// works before the first reconnect performs the migration.
+			token = configManager.getConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+		}
+		return token;
 	}
 
 	/**
@@ -473,10 +490,11 @@ public class SplashWebSocketClient
 
 	private void sendAuth()
 	{
-		String token = getOrCreateToken();
+		String username = activeUsername;
+		String token = getOrCreateToken(username);
 		JsonObject msg = new JsonObject();
 		msg.addProperty("type", "AUTH");
-		msg.addProperty("username", activeUsername != null ? activeUsername : "");
+		msg.addProperty("username", username != null ? username : "");
 		msg.addProperty("token", token);
 		sendJson(msg);
 	}
@@ -674,14 +692,41 @@ public class SplashWebSocketClient
 		return 0;
 	}
 
-	private String getOrCreateToken()
+	/**
+	 * Builds a per-account config key so each OSRS account logged into this RuneLite
+	 * profile gets its own token, instead of all accounts sharing (and overwriting)
+	 * a single "playerToken" value.
+	 */
+	private String tokenConfigKey(String username)
 	{
-		String token = configManager.getConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+		return TOKEN_CONFIG_KEY + "_" + username.trim().toLowerCase().replaceAll("[^a-z0-9]", "_");
+	}
+
+	private String getOrCreateToken(String username)
+	{
+		if (username == null || username.trim().isEmpty())
+		{
+			return UUID.randomUUID().toString();
+		}
+		String key = tokenConfigKey(username);
+		String token = configManager.getConfiguration(CONFIG_GROUP, key);
 		if (token == null || token.trim().isEmpty())
 		{
-			token = UUID.randomUUID().toString();
-			configManager.setConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY, token);
-			log.info("Generated new player token for server sync");
+			// Fall back to migrating the old shared token if present, so existing users
+			// don't get silently re-linked to a new server-side account on upgrade.
+			String legacyToken = configManager.getConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+			if (legacyToken != null && !legacyToken.trim().isEmpty())
+			{
+				token = legacyToken;
+				configManager.unsetConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+				log.info("Migrated legacy player token to per-account storage for {}", username);
+			}
+			else
+			{
+				token = UUID.randomUUID().toString();
+				log.info("Generated new player token for server sync ({})", username);
+			}
+			configManager.setConfiguration(CONFIG_GROUP, key, token);
 		}
 		return token;
 	}
