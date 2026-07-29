@@ -239,6 +239,15 @@ public class SplashWebSocketClient
 	}
 
 	/**
+	 * Returns the currently stored sync token, or null if none has been generated yet.
+	 * Non-destructive — unlike {@link #resetToken()}, this does not clear or regenerate it.
+	 */
+	public String getCurrentToken()
+	{
+		return configManager.getConfiguration(CONFIG_GROUP, TOKEN_CONFIG_KEY);
+	}
+
+	/**
 	 * Returns true if a setup link has been received and its JWT has not expired.
 	 */
 	public boolean isSetupLinkValid()

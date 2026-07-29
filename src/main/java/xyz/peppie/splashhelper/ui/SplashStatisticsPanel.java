@@ -259,25 +259,32 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
 
     private JPanel buildServerSyncPanel()
     {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        panel.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
+        JPanel container = new JPanel();
+        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
+        container.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        container.setBorder(BorderFactory.createMatteBorder(1, 1, 1, 1, ColorScheme.DARK_GRAY_COLOR.darker()));
 
-        JPanel inner = new JPanel(new BorderLayout());
-        inner.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        inner.setBorder(new EmptyBorder(8, 10, 8, 10));
+        // ── Title bar: section name + connection status, styled like the other panels' headers ──
+        JPanel titlePanel = new JPanel(new BorderLayout());
+        titlePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR.darker());
+        titlePanel.setBorder(new EmptyBorder(7, 10, 7, 10));
 
-        JLabel sectionLabel = new JLabel("Server Sync");
-        sectionLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-        sectionLabel.setFont(FontManager.getRunescapeSmallFont());
-        inner.add(sectionLabel, BorderLayout.WEST);
-
-        JPanel rightPanel = new JPanel(new BorderLayout(5, 0));
-        rightPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        JLabel titleLabel = new JLabel("Server Sync");
+        titleLabel.setForeground(Color.CYAN);
+        titleLabel.setFont(FontManager.getRunescapeBoldFont());
+        titlePanel.add(titleLabel, BorderLayout.WEST);
 
         JLabel statusLabel = new JLabel();
         statusLabel.setFont(FontManager.getRunescapeSmallFont());
-        rightPanel.add(statusLabel, BorderLayout.WEST);
+        titlePanel.add(statusLabel, BorderLayout.EAST);
+
+        container.add(titlePanel);
+
+        // ── Content: exactly one of "Generate Link" (not yet linked) or "Reset Token" +
+        // "Copy Token" (already linked) is visible at a time ──
+        JPanel content = new JPanel(new BorderLayout());
+        content.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        content.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         javax.swing.JButton actionButton = new javax.swing.JButton();
         actionButton.setFocusPainted(false);
@@ -288,20 +295,31 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         resetTokenButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         resetTokenButton.setToolTipText("Clear the stored sync token and reconnect as a new player. "
             + "Use this if sync keeps failing because this client is now playing a different account.");
-        resetTokenButton.addActionListener(e -> onResetTokenButtonClicked(statusLabel, actionButton));
 
-        JPanel buttonsPanel = new JPanel();
-        buttonsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-        buttonsPanel.setLayout(new BoxLayout(buttonsPanel, BoxLayout.X_AXIS));
-        buttonsPanel.add(resetTokenButton);
-        buttonsPanel.add(javax.swing.Box.createHorizontalStrut(5));
-        buttonsPanel.add(actionButton);
-        rightPanel.add(buttonsPanel, BorderLayout.EAST);
+        javax.swing.JButton copyTokenButton = new javax.swing.JButton("Copy Token");
+        copyTokenButton.setFocusPainted(false);
+        copyTokenButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        copyTokenButton.setToolTipText("Copy your current sync token to the clipboard — "
+            + "paste it into the \"Forgot password\" form on splasher.help.");
+
+        // Wired up now that all three buttons exist, so each listener can update all of them.
+        actionButton.addActionListener(e -> onSetupLinkButtonClicked(statusLabel, actionButton, resetTokenButton, copyTokenButton));
+        resetTokenButton.addActionListener(e -> onResetTokenButtonClicked(statusLabel, actionButton, resetTokenButton, copyTokenButton));
+        copyTokenButton.addActionListener(e -> onCopyTokenButtonClicked());
+
+        JPanel buttonsRow = new JPanel();
+        buttonsRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+        buttonsRow.setLayout(new BoxLayout(buttonsRow, BoxLayout.X_AXIS));
+        buttonsRow.add(actionButton);
+        buttonsRow.add(resetTokenButton);
+        buttonsRow.add(javax.swing.Box.createHorizontalStrut(5));
+        buttonsRow.add(copyTokenButton);
+
+        content.add(buttonsRow, BorderLayout.WEST);
+        container.add(content);
 
         // Initial state
-        updateSyncPanelState(statusLabel, actionButton);
-
-        actionButton.addActionListener(e -> onSetupLinkButtonClicked(statusLabel, actionButton));
+        updateSyncPanelState(statusLabel, actionButton, resetTokenButton, copyTokenButton);
 
         // Periodically update status label (replace any timer from a previous rebuild)
         if (syncRefreshTimer != null)
@@ -309,51 +327,77 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             syncRefreshTimer.stop();
         }
         syncRefreshTimer = new javax.swing.Timer(2000, e ->
-            SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton)));
+            SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton, resetTokenButton, copyTokenButton)));
         syncRefreshTimer.start();
 
-        inner.add(rightPanel, BorderLayout.EAST);
-        panel.add(inner, BorderLayout.CENTER);
-        return panel;
+        return container;
     }
 
-    private void updateSyncPanelState(JLabel statusLabel, javax.swing.JButton button)
+    private void updateSyncPanelState(JLabel statusLabel, javax.swing.JButton actionButton,
+        javax.swing.JButton resetTokenButton, javax.swing.JButton copyTokenButton)
     {
         if (webSocketClient.isAuthenticated())
         {
             statusLabel.setText("Connected");
             statusLabel.setForeground(new java.awt.Color(0x43B581)); // green
 
-            // Do not show setup prompts while actively authenticated; only show
-            // a button when we already have a valid setup link to copy.
+            // A pending (unused) setup link means the account hasn't finished linking yet —
+            // show only Generate Link. Once linking is complete, switch to Reset/Copy Token.
             if (webSocketClient.isSetupLinkValid())
             {
-                button.setText("Show Link");
-                button.setToolTipText("Copy setup link to clipboard");
-                button.setVisible(true);
+                actionButton.setText("Generate Link");
+                actionButton.setToolTipText("Copy setup link to clipboard");
+                actionButton.setVisible(true);
+                resetTokenButton.setVisible(false);
+                copyTokenButton.setVisible(false);
             }
             else
             {
-                button.setVisible(false);
+                actionButton.setVisible(false);
+                resetTokenButton.setVisible(true);
+                copyTokenButton.setVisible(true);
             }
         }
         else if (webSocketClient.isConnected())
         {
             statusLabel.setText("Connecting...");
             statusLabel.setForeground(new java.awt.Color(0xFAA61A)); // yellow
-            button.setVisible(false);
+            actionButton.setVisible(false);
+            resetTokenButton.setVisible(false);
+            copyTokenButton.setVisible(false);
         }
         else
         {
             statusLabel.setText("Disconnected");
             statusLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-            button.setText("Generate Link");
-            button.setToolTipText("Connect and generate a setup link");
-            button.setVisible(true);
+            actionButton.setText("Generate Link");
+            actionButton.setToolTipText("Connect and generate a setup link");
+            actionButton.setVisible(true);
+            resetTokenButton.setVisible(false);
+            copyTokenButton.setVisible(false);
         }
     }
 
-    private void onSetupLinkButtonClicked(JLabel statusLabel, javax.swing.JButton button)
+    private void onCopyTokenButtonClicked()
+    {
+        String token = webSocketClient.getCurrentToken();
+        if (token == null || token.trim().isEmpty())
+        {
+            JOptionPane.showMessageDialog(this,
+                "No token yet — connect to the server first.",
+                "Copy Token", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        StringSelection selection = new StringSelection(token);
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
+        JOptionPane.showMessageDialog(this,
+            "Token copied to clipboard!\n\nPaste it into the \"Forgot password\" form on splasher.help.",
+            "Copy Token", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void onSetupLinkButtonClicked(JLabel statusLabel, javax.swing.JButton button,
+        javax.swing.JButton resetTokenButton, javax.swing.JButton copyTokenButton)
     {
         if (webSocketClient.isSetupLinkValid())
         {
@@ -386,7 +430,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                     pollTimer.stop();
                     SwingUtilities.invokeLater(() -> {
                         button.setEnabled(true);
-                        updateSyncPanelState(statusLabel, button);
+                        updateSyncPanelState(statusLabel, button, resetTokenButton, copyTokenButton);
                         String link = webSocketClient.getSetupLink();
                         StringSelection sel = new StringSelection(link);
                         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, null);
@@ -401,7 +445,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                     pollTimer.stop();
                     SwingUtilities.invokeLater(() -> {
                         button.setEnabled(true);
-                        updateSyncPanelState(statusLabel, button);
+                        updateSyncPanelState(statusLabel, button, resetTokenButton, copyTokenButton);
                         JOptionPane.showMessageDialog(this,
                             "Your account is already set up!\n"
                             + "You can log in on the web dashboard directly.",
@@ -414,7 +458,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                     pollTimer.stop();
                     SwingUtilities.invokeLater(() -> {
                         button.setEnabled(true);
-                        updateSyncPanelState(statusLabel, button);
+                        updateSyncPanelState(statusLabel, button, resetTokenButton, copyTokenButton);
                         JOptionPane.showMessageDialog(this,
                             "Could not generate a setup link.\n"
                             + "Make sure Server Sync is enabled, you are logged in,\n"
@@ -427,7 +471,8 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         }
     }
 
-    private void onResetTokenButtonClicked(JLabel statusLabel, javax.swing.JButton actionButton)
+    private void onResetTokenButtonClicked(JLabel statusLabel, javax.swing.JButton actionButton,
+        javax.swing.JButton resetTokenButton, javax.swing.JButton copyTokenButton)
     {
         int result = JOptionPane.showConfirmDialog(this,
             "This disconnects from the sync server and generates a brand-new sync token.\n"
@@ -448,7 +493,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
         }
 
         webSocketClient.resetToken();
-        SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton));
+        SwingUtilities.invokeLater(() -> updateSyncPanelState(statusLabel, actionButton, resetTokenButton, copyTokenButton));
     }
 
     private JLabel createIconButton(ImageIcon icon, String tooltip)
