@@ -1233,6 +1233,7 @@ public class SplashHelperPlugin extends Plugin
 		// Count nearby players
 		int nearbyPlayers = countNearbyPlayers(config.playerCountRadius());
 		sessionManager.recordPlayerCountSample(nearbyPlayers);
+		sessionManager.updateCurrentPlayerCount(nearbyPlayers);
 
 		// Add pickpocketers to session from tracker
 		for (String pickpocketer : playerTracker.getPickpocketers())

@@ -631,6 +631,7 @@ public class SplashWebSocketClient
 		obj.addProperty("knightMovements", session.getKnightMovements());
 		obj.addProperty("highestPlayerCount", session.getHighestPlayerCount());
 		obj.addProperty("averagePlayerCount", session.getAveragePlayerCount());
+		obj.addProperty("currentPlayerCount", session.getCurrentPlayerCount());
 		obj.addProperty("pickpocketerCount", session.getPickpocketerCount());
 		obj.addProperty("playerDeaths", session.getPlayerDeaths());
 		obj.addProperty("startingRuneCount", session.getStartingRuneCount());

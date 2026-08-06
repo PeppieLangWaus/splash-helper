@@ -479,6 +479,17 @@ public class SessionManager
 	}
 
 	/**
+	 * Update the current session's live nearby-player count.
+	 */
+	public void updateCurrentPlayerCount(int count)
+	{
+		if (currentSession != null)
+		{
+			currentSession.setCurrentPlayerCount(count);
+		}
+	}
+
+	/**
 	 * Whether a recently finalized session is still within its resume window.
 	 */
 	public boolean hasResumableSession()

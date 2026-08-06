@@ -49,12 +49,16 @@ public class SplashSession
 	private PlayerCountSeries playerCountSeries = new PlayerCountSeries();
 	@Setter
 	private int highestPlayerCount = 0;
-	
+
 	// Derived statistics for persistence
 	@Setter
 	private int averagePlayerCount = 0;
 	@Setter
 	private int pickpocketerCount = 0;
+	// Live snapshot, updated every sample: nearby players right now (as opposed to
+	// highest/averagePlayerCount, which summarize the whole session).
+	@Setter
+	private int currentPlayerCount = 0;
 
 	// Rune tracking
 	@Setter
