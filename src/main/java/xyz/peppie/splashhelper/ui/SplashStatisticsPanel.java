@@ -65,6 +65,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final JLabel overallGpPerHourLabel = new JLabel("0 gp/h");
     private final JLabel overallHighestPlayerCountLabel = new JLabel("0");
     private final JLabel overallDeathsLabel = new JLabel("0");
+    private final JLabel overallLevel99sLabel = new JLabel("0");
 
     // Current session
     private final JPanel currentPanel = new JPanel();
@@ -83,6 +84,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
     private final JLabel playerCountLabel = new JLabel("0");
     private final JLabel highestPlayerCountLabel = new JLabel("0");
     private final JLabel deathsLabel = new JLabel("0");
+    private final JLabel level99sLabel = new JLabel("0");
 
     // Supply tracker
     private SplashSupplyTrackerBox supplyBox;
@@ -588,6 +590,8 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             addStatRow(overallPanel, "Highest Players:", overallHighestPlayerCountLabel);
         if (config.overallStatFields().contains(OverallStatField.TOTAL_DEATHS))
             addStatRow(overallPanel, "Total Deaths:", overallDeathsLabel);
+        if (config.overallStatFields().contains(OverallStatField.TOTAL_LEVEL_99S))
+            addStatRow(overallPanel, "Total 99s Reached:", overallLevel99sLabel);
 
         return overallContainer;
     }
@@ -642,6 +646,8 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             addStatRow(currentPanel, "Highest Players:", highestPlayerCountLabel);
         if (config.currentSessionFields().contains(SessionStatField.PLAYER_DEATHS))
             addStatRow(currentPanel, "Deaths:", deathsLabel);
+        if (config.currentSessionFields().contains(SessionStatField.LEVEL_99S))
+            addStatRow(currentPanel, "99s Reached:", level99sLabel);
 
         supplyBox = new SplashSupplyTrackerBox(itemManager, "Runes Used");
         currentContainer.add(supplyBox);
@@ -743,6 +749,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             int totalXp = history.stream().mapToInt(SplashSession::getMagicXpGained).sum();
             long totalCost = history.stream().mapToLong(SplashSession::getRuneCostGp).sum();
             int totalDeaths = history.stream().mapToInt(SplashSession::getPlayerDeaths).sum();
+            int totalLevel99s = history.stream().mapToInt(SplashSession::getLevel99Count).sum();
 
             if (hasActiveSession && currentSession != null)
             {
@@ -751,6 +758,7 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                 totalXp += currentSession.getMagicXpGained();
                 totalCost += plugin.getCachedRuneCost();  // Current session cost from cache
                 totalDeaths += currentSession.getPlayerDeaths();
+                totalLevel99s += currentSession.getLevel99Count();
             }
 
             // Update overall stats
@@ -829,6 +837,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
             // Update total nearby player deaths across all sessions
             overallDeathsLabel.setText(formatNumber(totalDeaths));
             overallDeathsLabel.setForeground(Color.RED);
+
+            // Update total nearby players who reached 99 across all sessions
+            overallLevel99sLabel.setText(formatNumber(totalLevel99s));
+            overallLevel99sLabel.setForeground(Color.CYAN);
 
             // Update current player count (must be called on client thread)
             clientThread.invoke(() -> {
@@ -920,6 +932,10 @@ public class SplashStatisticsPanel extends PluginPanel implements SplashSessionH
                 // Update nearby player death count
                 deathsLabel.setText(String.valueOf(currentSession.getPlayerDeaths()));
                 deathsLabel.setForeground(Color.RED);
+
+                // Update nearby players who reached 99
+                level99sLabel.setText(String.valueOf(currentSession.getLevel99Count()));
+                level99sLabel.setForeground(Color.CYAN);
             }
             // When inactive the labels keep the last session's data — it is
             // either hidden entirely or collapsed behind the resume countdown,

@@ -16,7 +16,8 @@ public enum OverallStatField
 	GP_PER_HOUR("GP/Hour"),
 	CURRENT_PLAYERS("Current Players"),
 	HIGHEST_PLAYERS("Highest Players"),
-	TOTAL_DEATHS("Total Deaths");
+	TOTAL_DEATHS("Total Deaths"),
+	TOTAL_LEVEL_99S("Total 99s Reached");
 
 	private final String displayName;
 
