@@ -27,6 +27,7 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.SpotanimID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
@@ -648,6 +649,27 @@ public class SplashHelperPlugin extends Plugin
 	public void onGraphicChanged(GraphicChanged event)
 	{
 		guideEngine.onGraphicChanged(event);
+
+		Actor actor = event.getActor();
+		if (actor instanceof Player && actor != client.getLocalPlayer() && sessionManager.hasActiveSession())
+		{
+			Player player = (Player) actor;
+			Player localPlayer = client.getLocalPlayer();
+			WorldPoint playerPos = player.getWorldLocation();
+			WorldPoint localPos = localPlayer != null ? localPlayer.getWorldLocation() : null;
+
+			if (playerPos != null && localPos != null
+				&& localPos.distanceTo(playerPos) <= config.playerCountRadius())
+			{
+				// LEVELUP_MAX plays when the player's last remaining skill (of all 23) hits 99,
+				// i.e. it's still a plain "reached 99" moment, just their final one - count it the same.
+				if (player.hasSpotAnim(SpotanimID.LEVELUP_99_ANIM) || player.hasSpotAnim(SpotanimID.LEVELUP_MAX))
+				{
+					sessionManager.recordLevel99();
+					log.debug("Nearby player reached level 99: {}", player.getName());
+				}
+			}
+		}
 	}
 
 	@Subscribe

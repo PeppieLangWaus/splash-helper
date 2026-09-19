@@ -14,7 +14,8 @@ public enum SessionStatField
 	RUNE_COST("Rune Cost"),
 	NEARBY_PLAYERS("Nearby Players"),
 	HIGHEST_PLAYERS("Highest Players"),
-	PLAYER_DEATHS("Deaths");
+	PLAYER_DEATHS("Deaths"),
+	LEVEL_99S("99s Reached");
 
 	private final String displayName;
 

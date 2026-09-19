@@ -457,6 +457,17 @@ public class SessionManager
 	}
 
 	/**
+	 * Record a nearby player reaching level 99 in a skill in the current session.
+	 */
+	public void recordLevel99()
+	{
+		if (currentSession != null)
+		{
+			currentSession.incrementLevel99Count();
+		}
+	}
+
+	/**
 	 * Add a pickpocketer to the current session.
 	 */
 	public void addPickpocketer(String playerName)

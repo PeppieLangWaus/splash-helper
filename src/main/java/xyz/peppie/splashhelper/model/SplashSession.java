@@ -37,6 +37,9 @@ public class SplashSession
 	// Count of nearby players observed dying during this session
 	@Setter
 	private int playerDeaths = 0;
+	// Count of nearby players observed reaching level 99 in a skill during this session
+	@Setter
+	private int level99Count = 0;
 	@Setter
 	private Instant endTime = null;
 
@@ -160,6 +163,11 @@ public class SplashSession
 	public void incrementPlayerDeaths()
 	{
 		playerDeaths++;
+	}
+
+	public void incrementLevel99Count()
+	{
+		level99Count++;
 	}
 
 	/**

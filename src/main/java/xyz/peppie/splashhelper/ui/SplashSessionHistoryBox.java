@@ -137,6 +137,8 @@ public class SplashSessionHistoryBox extends JPanel
 			addStatRow("Highest Players:", String.valueOf(session.getHighestPlayerCount()));
 		if (config.sessionHistoryFields().contains(SessionStatField.PLAYER_DEATHS))
 			addStatRow("Deaths:", String.valueOf(session.getPlayerDeaths()));
+		if (config.sessionHistoryFields().contains(SessionStatField.LEVEL_99S))
+			addStatRow("99s Reached:", String.valueOf(session.getLevel99Count()));
 
 		add(contentPanel);
 
