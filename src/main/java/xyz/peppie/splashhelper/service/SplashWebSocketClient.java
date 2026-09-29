@@ -3,14 +3,10 @@ package xyz.peppie.splashhelper.service;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.WebSocket;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +19,11 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
 import xyz.peppie.splashhelper.SplashHelperConfig;
 import xyz.peppie.splashhelper.model.PlayerCountSeries;
 import xyz.peppie.splashhelper.model.SplashSession;
@@ -40,7 +41,7 @@ public class SplashWebSocketClient
 	private final Gson gson;
 	private final Client client;
 	private final ClientThread clientThread;
-	private final HttpClient httpClient;
+	private final OkHttpClient okHttpClient;
 	private volatile ScheduledExecutorService executor;
 
 	private volatile WebSocket webSocket;
@@ -99,17 +100,18 @@ public class SplashWebSocketClient
 	private static final String TOKEN_CONFIG_KEY = "playerToken";
 	private static final String CONFIG_GROUP = "splashhelper";
 	private static final int[] RECONNECT_DELAYS_SECONDS = {2, 4, 8, 16, 30};
+	private static final int WS_NORMAL_CLOSURE = 1000;
 
 	@Inject
 	public SplashWebSocketClient(SplashHelperConfig config, ConfigManager configManager,
-								 Gson gson, Client client, ClientThread clientThread)
+								 Gson gson, Client client, ClientThread clientThread, OkHttpClient okHttpClient)
 	{
 		this.config = config;
 		this.configManager = configManager;
 		this.gson = gson;
 		this.client = client;
 		this.clientThread = clientThread;
-		this.httpClient = HttpClient.newHttpClient();
+		this.okHttpClient = okHttpClient;
 	}
 
 	/**
@@ -193,7 +195,7 @@ public class SplashWebSocketClient
 		{
 			try
 			{
-				ws.sendClose(WebSocket.NORMAL_CLOSURE, "plugin shutdown");
+				ws.close(WS_NORMAL_CLOSURE, "plugin shutdown");
 			}
 			catch (Exception e)
 			{
@@ -369,16 +371,14 @@ public class SplashWebSocketClient
 			JsonObject msg = new JsonObject();
 			msg.addProperty("type", "SESSION_END");
 			msg.add("sessionData", buildSessionData(session));
-			ws.sendText(gson.toJson(msg), true).whenComplete((result, ex) -> {
-				if (ex != null)
-				{
-					log.warn("WS send failed: {}", ex.getMessage());
-				}
-				else
-				{
-					session.setSynced(true);
-				}
-			});
+			if (ws.send(gson.toJson(msg)))
+			{
+				session.setSynced(true);
+			}
+			else
+			{
+				log.warn("WS send failed: message not enqueued");
+			}
 		});
 	}
 
@@ -421,7 +421,7 @@ public class SplashWebSocketClient
 		{
 			try
 			{
-				webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "reconnecting");
+				webSocket.close(WS_NORMAL_CLOSURE, "reconnecting");
 			}
 			catch (Exception e)
 			{
@@ -436,23 +436,8 @@ public class SplashWebSocketClient
 
 		try
 		{
-			httpClient.newWebSocketBuilder()
-				.buildAsync(URI.create(url), new WsListener())
-				.whenComplete((ws, ex) -> {
-					connecting.set(false);
-					if (ex != null)
-					{
-						log.debug("WS connect failed to {}: {}", url, ex.getMessage());
-						if (!intentionalDisconnect)
-						{
-							scheduleReconnect();
-						}
-					}
-					else
-					{
-						webSocket = ws;
-					}
-				});
+			Request request = new Request.Builder().url(url).build();
+			webSocket = okHttpClient.newWebSocket(request, new WsListener());
 		}
 		catch (Exception e)
 		{
@@ -507,10 +492,10 @@ public class SplashWebSocketClient
 			return;
 		}
 		String json = gson.toJson(msg);
-		ws.sendText(json, true).exceptionally(ex -> {
-			log.warn("WS send failed: {}", ex.getMessage());
-			return null;
-		});
+		if (!ws.send(json))
+		{
+			log.warn("WS send failed: message not enqueued");
+		}
 	}
 
 	private void handleMessage(String text)
@@ -735,45 +720,40 @@ public class SplashWebSocketClient
 
 	// ==================== WebSocket listener ====================
 
-	private class WsListener implements WebSocket.Listener
+	private class WsListener extends WebSocketListener
 	{
-		private final StringBuilder buffer = new StringBuilder();
-
 		@Override
-		public void onOpen(WebSocket ws)
+		public void onOpen(WebSocket ws, Response response)
 		{
-			// Set webSocket BEFORE sendAuth — onOpen fires before whenComplete,
-			// so this.webSocket would be null if we only set it in whenComplete.
+			// Set webSocket BEFORE sendAuth so it's non-null once auth starts.
 			webSocket = ws;
 			connected.set(true);
 			authenticated.set(false);
+			connecting.set(false);
 			reconnectScheduled.set(false);
 			// Reset the per-connection setup-link log flag so the first AUTH_SUCCESS
 			// on this new connection logs at info level.
 			setupLinkLoggedThisConnection = false;
 			log.debug("WS connected to server, authenticating...");
-			ws.request(1);
 			sendAuth();
 		}
 
 		@Override
-		public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last)
+		public void onMessage(WebSocket ws, String text)
 		{
-			buffer.append(data);
-			if (last)
-			{
-				String text = buffer.toString();
-				buffer.setLength(0);
-				handleMessage(text);
-			}
-			ws.request(1);
-			return null;
+			handleMessage(text);
 		}
 
 		@Override
-		public CompletionStage<?> onClose(WebSocket ws, int statusCode, String reason)
+		public void onClosing(WebSocket ws, int code, String reason)
 		{
-			log.debug("WS closed ({}): {}", statusCode, reason);
+			ws.close(code, reason);
+		}
+
+		@Override
+		public void onClosed(WebSocket ws, int code, String reason)
+		{
+			log.debug("WS closed ({}): {}", code, reason);
 			connecting.set(false);
 			connected.set(false);
 			authenticated.set(false);
@@ -781,13 +761,12 @@ public class SplashWebSocketClient
 			{
 				scheduleReconnect();
 			}
-			return null;
 		}
 
 		@Override
-		public void onError(WebSocket ws, Throwable error)
+		public void onFailure(WebSocket ws, Throwable t, Response response)
 		{
-			log.debug("WS error: {}", error.getMessage());
+			log.debug("WS error: {}", t.getMessage());
 			connecting.set(false);
 			connected.set(false);
 			authenticated.set(false);
