@@ -386,7 +386,7 @@ public class SessionManager
 		{
 			int itemId = usage[0];
 			int amount = usage[1];
-			int price = itemManager.getItemPrice(itemId);
+			long price = itemManager.getItemPrice(itemId);
 			totalCost += (long) price * amount;
 		}
 		return totalCost;
