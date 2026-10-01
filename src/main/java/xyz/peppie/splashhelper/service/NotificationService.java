@@ -96,6 +96,38 @@ public class NotificationService
 	}
 
 	/**
+	 * Send a nearby player death notification.
+	 */
+	public void sendDeathNotification(String message)
+	{
+		if (!config.enableDeathNotification())
+		{
+			return;
+		}
+		if (notificationsMuted)
+		{
+			return;
+		}
+		sendNotificationInternal(message);
+	}
+
+	/**
+	 * Send a nearby player level 99 notification.
+	 */
+	public void sendLevel99Notification(String message)
+	{
+		if (!config.enableLevel99Notification())
+		{
+			return;
+		}
+		if (notificationsMuted)
+		{
+			return;
+		}
+		sendNotificationInternal(message);
+	}
+
+	/**
 	 * Mute all notifications.
 	 */
 	public void muteNotifications()

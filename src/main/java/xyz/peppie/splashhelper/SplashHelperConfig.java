@@ -171,6 +171,29 @@ public interface SplashHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "enableDeathNotification",
+		name = "Player Death Notification",
+		description = "Notify in the game chat when a nearby player dies",
+		section = notificationSection
+	)
+	default boolean enableDeathNotification()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "enableLevel99Notification",
+		name = "Player 99 Notification",
+		description = "Notify in the game chat when a nearby player reaches level 99. If Server Sync is also "
+			+ "enabled, that player's username is sent to the server so it can announce it in the splasher.help chatbox.",
+		section = notificationSection
+	)
+	default boolean enableLevel99Notification()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "enableSoundNotification",
 		name = "Sound Notification",
 		description = "Play a notification sound (Windows toast + native sound)",
@@ -480,12 +503,14 @@ public interface SplashHelperConfig extends Config
 		name = "Enable Server Sync",
 		description = "Connect to a third-party Splash Helper server and stream live session data. "
 			+ "This sends your account username and session statistics (spell used, world, magic XP, "
-			+ "rune usage and cost, spells cast, knight movements, nearby player counts and timestamps) "
+			+ "rune usage and cost, spells cast, knight movements, nearby player counts and timestamps, "
+			+ "and the usernames of nearby players observed reaching level 99) "
 			+ "to the configured server. Leave disabled if you do not want any data sent externally.",
 		warning = "Enabling Server Sync connects to a third-party server (splasher.help by default) and "
 			+ "sends your account username and splash session statistics — including the spell used, world, "
-			+ "magic XP, rune usage and cost, spells cast, knight movements, nearby player counts and "
-			+ "timestamps. No data is sent while this is disabled. Are you sure you want to enable it?",
+			+ "magic XP, rune usage and cost, spells cast, knight movements, nearby player counts, timestamps, "
+			+ "and the usernames of nearby players observed reaching level 99. "
+			+ "No data is sent while this is disabled. Are you sure you want to enable it?",
 		section = serverSyncSection,
 		position = 0
 	)
