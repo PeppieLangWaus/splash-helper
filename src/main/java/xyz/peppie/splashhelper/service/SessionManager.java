@@ -459,11 +459,11 @@ public class SessionManager
 	/**
 	 * Record a nearby player reaching level 99 in a skill in the current session.
 	 */
-	public void recordLevel99()
+	public void recordLevel99(String playerName)
 	{
 		if (currentSession != null)
 		{
-			currentSession.incrementLevel99Count();
+			currentSession.addLevel99Player(playerName);
 		}
 	}
 

@@ -665,8 +665,10 @@ public class SplashHelperPlugin extends Plugin
 				// i.e. it's still a plain "reached 99" moment, just their final one - count it the same.
 				if (player.hasSpotAnim(SpotanimID.LEVELUP_99_ANIM) || player.hasSpotAnim(SpotanimID.LEVELUP_MAX))
 				{
-					sessionManager.recordLevel99();
-					log.debug("Nearby player reached level 99: {}", player.getName());
+					String level99PlayerName = player.getName();
+					sessionManager.recordLevel99(level99PlayerName);
+					notificationService.sendLevel99Notification(level99PlayerName + " has reached 99! Say gzz!");
+					log.debug("Nearby player reached level 99: {}", level99PlayerName);
 				}
 			}
 		}
@@ -1411,8 +1413,10 @@ public class SplashHelperPlugin extends Plugin
 				if (playerPos != null && localPos != null
 					&& localPos.distanceTo(playerPos) <= config.playerCountRadius())
 				{
+					String deadPlayerName = player.getName();
 					sessionManager.recordPlayerDeath();
-					log.debug("Nearby player death detected: {}", player.getName());
+					notificationService.sendDeathNotification("Oh dear, " + deadPlayerName + " has died.");
+					log.debug("Nearby player death detected: {}", deadPlayerName);
 				}
 			}
 		}

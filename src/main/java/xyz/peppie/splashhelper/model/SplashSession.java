@@ -45,6 +45,9 @@ public class SplashSession
 
 	// Player tracking (transient - not persisted)
 	private transient final Set<String> pickpocketers = new HashSet<>();
+	// Usernames behind level99Count, sent live over WS only - not persisted, same as pickpocketers.
+	private transient final List<String> level99PlayerNames = new ArrayList<>();
+	private static final int MAX_LEVEL_99_PLAYER_NAMES = 100;
 	// Running mean for player count: O(1) memory, exact average over any session length.
 	private transient long playerCountSum = 0;
 	private transient long playerCountSampleN = 0;
@@ -168,6 +171,15 @@ public class SplashSession
 	public void incrementLevel99Count()
 	{
 		level99Count++;
+	}
+
+	public void addLevel99Player(String playerName)
+	{
+		incrementLevel99Count();
+		if (playerName != null && !playerName.isEmpty() && level99PlayerNames.size() < MAX_LEVEL_99_PLAYER_NAMES)
+		{
+			level99PlayerNames.add(playerName);
+		}
 	}
 
 	/**
