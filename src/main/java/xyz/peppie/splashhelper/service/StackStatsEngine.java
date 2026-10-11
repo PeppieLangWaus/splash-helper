@@ -21,17 +21,12 @@ public class StackStatsEngine
 
 	public enum StackEventType
 	{
-		ENTER, LEAVE, DESPAWN
+		ENTER, LEAVE
 	}
 
 	public enum ExcursionOutcome
 	{
 		COMPLETED, UNKNOWN
-	}
-
-	public enum WindowCloseReason
-	{
-		ENTER_EVENT, SHUTDOWN
 	}
 
 	@Getter
@@ -86,7 +81,6 @@ public class StackStatsEngine
 		private final boolean knightMoved;
 		private final Integer moveTick;
 		private final WindowLengthBucket bucket;
-		private final WindowCloseReason closeReason;
 		private final boolean blockingAttempted;
 	}
 
@@ -185,8 +179,8 @@ public class StackStatsEngine
 		this.sink = sink;
 	}
 
-	public void tick(int tick, KnightLocation knightLocation, Set<Integer> idsOnStackTile, Set<Integer> allIdsInScene,
-		long epochMillis, Integer blockingResetterId)
+	public void tick(int tick, KnightLocation knightLocation, Set<Integer> idsOnStackTile, long epochMillis,
+		Integer blockingResetterId)
 	{
 		if (knightLocation != KnightLocation.UNKNOWN)
 		{
@@ -212,7 +206,7 @@ public class StackStatsEngine
 			}
 		}
 
-		processStackDiff(tick, idsOnStackTile, allIdsInScene, epochMillis);
+		processStackDiff(tick, idsOnStackTile, epochMillis);
 
 		if (openWindow != null && blockingResetterId != null && idsOnStackTile.contains(blockingResetterId))
 		{
@@ -238,7 +232,7 @@ public class StackStatsEngine
 		prevStackIds = new TreeSet<>(idsOnStackTile);
 	}
 
-	private void processStackDiff(int tick, Set<Integer> idsOnStackTile, Set<Integer> allIdsInScene, long epochMillis)
+	private void processStackDiff(int tick, Set<Integer> idsOnStackTile, long epochMillis)
 	{
 		Set<Integer> leftIds = new TreeSet<>(prevStackIds);
 		leftIds.removeAll(idsOnStackTile);
@@ -250,11 +244,6 @@ public class StackStatsEngine
 		for (int id : leftIds)
 		{
 			runningStackSize--;
-			if (!allIdsInScene.contains(id))
-			{
-				sink.onEvent(new EventRow(tick, epochMillis, StackEventType.DESPAWN, id, runningStackSize, currentWindowId()));
-				continue;
-			}
 
 			if (openExcursion != null)
 			{
@@ -290,7 +279,7 @@ public class StackStatsEngine
 
 			if (openWindow != null)
 			{
-				closeWindow(tick, WindowCloseReason.ENTER_EVENT);
+				closeWindow(tick);
 			}
 		}
 	}
@@ -312,7 +301,7 @@ public class StackStatsEngine
 		}
 	}
 
-	private void closeWindow(int tick, WindowCloseReason reason)
+	private void closeWindow(int tick)
 	{
 		OpenWindow w = openWindow;
 		int length = Math.max(1, tick - w.startTick);
@@ -326,7 +315,7 @@ public class StackStatsEngine
 		stat.movesStarted += movesStarted;
 
 		sink.onWindowClosed(new WindowRow(w.id, w.startTick, length, w.exposedTicks, w.leavers, w.enters,
-			w.knightMoved, w.moveTick, bucket, reason, w.blockingAttempted));
+			w.knightMoved, w.moveTick, bucket, w.blockingAttempted));
 		openWindow = null;
 	}
 
@@ -350,7 +339,7 @@ public class StackStatsEngine
 	{
 		if (openWindow != null)
 		{
-			closeWindow(tick, WindowCloseReason.SHUTDOWN);
+			closeWindow(tick);
 		}
 		if (openExcursion != null)
 		{

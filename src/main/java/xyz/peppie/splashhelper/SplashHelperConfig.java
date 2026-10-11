@@ -647,7 +647,7 @@ public interface SplashHelperConfig extends Config
 	@ConfigItem(
 		keyName = "logStackTrackingEvents",
 		name = "Log Raw Events",
-		description = "Also write a CSV row for every individual ENTER/LEAVE/DESPAWN event (verbose). Window and excursion CSVs are always written while tracking is enabled.",
+		description = "Also write a CSV row for every individual ENTER/LEAVE event (verbose). Window and excursion CSVs are always written while tracking is enabled.",
 		section = stackTrackingSection,
 		position = 1
 	)

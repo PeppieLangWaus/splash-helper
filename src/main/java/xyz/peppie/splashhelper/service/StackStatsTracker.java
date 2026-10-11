@@ -20,7 +20,7 @@ public class StackStatsTracker
 	private boolean started = false;
 
 	public void onGameTick(int tick, WorldPoint knightTile, WorldPoint stackTile, WorldPoint knightPos,
-		Set<Integer> idsOnStackTile, Set<Integer> allIdsInScene, Integer blockingResetterId)
+		Set<Integer> idsOnStackTile, Integer blockingResetterId)
 	{
 		if (!config.enableStackTracking() || knightTile == null || stackTile == null)
 		{
@@ -33,8 +33,8 @@ public class StackStatsTracker
 			started = true;
 		}
 
-		engine.tick(tick, classify(knightPos, knightTile, stackTile), idsOnStackTile, allIdsInScene,
-			System.currentTimeMillis(), blockingResetterId);
+		engine.tick(tick, classify(knightPos, knightTile, stackTile), idsOnStackTile, System.currentTimeMillis(),
+			blockingResetterId);
 	}
 
 	private StackStatsEngine.KnightLocation classify(WorldPoint knightPos, WorldPoint knightTile, WorldPoint stackTile)

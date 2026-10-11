@@ -1290,14 +1290,12 @@ public class SplashHelperPlugin extends Plugin
 		Integer blockingResetterId = null;
 
 		Set<Integer> idsOnStackTile = new HashSet<>();
-		Set<Integer> allIdsInScene = new HashSet<>();
 		for (Player player : client.getTopLevelWorldView().players())
 		{
 			if (player == null)
 			{
 				continue;
 			}
-			allIdsInScene.add(player.getId());
 			WorldPoint pos = player.getWorldLocation();
 			if (pos != null && pos.equals(stackTileLoc))
 			{
@@ -1317,7 +1315,7 @@ public class SplashHelperPlugin extends Plugin
 		}
 
 		stackStatsTracker.onGameTick(client.getTickCount(), knightTileLoc, stackTileLoc, knightPos,
-			idsOnStackTile, allIdsInScene, blockingResetterId);
+			idsOnStackTile, blockingResetterId);
 	}
 
 	public int countNearbyPlayers(int radius)
