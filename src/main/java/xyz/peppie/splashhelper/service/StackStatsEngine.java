@@ -24,11 +24,6 @@ public class StackStatsEngine
 		ENTER, LEAVE, DESPAWN
 	}
 
-	public enum ExcursionFirstStep
-	{
-		STACK_TILE, OUTSIDE
-	}
-
 	public enum ExcursionOutcome
 	{
 		COMPLETED, UNKNOWN
@@ -103,7 +98,6 @@ public class StackStatsEngine
 		private final int startTick;
 		private final int endTick;
 		private final int lengthTicks;
-		private final ExcursionFirstStep firstStep;
 		private final boolean wentOutside;
 		private final int stackSizeAtStart;
 		private final int entersDuring;
@@ -153,17 +147,15 @@ public class StackStatsEngine
 	{
 		final long id;
 		final int startTick;
-		final ExcursionFirstStep firstStep;
 		boolean wentOutside;
 		final int stackSizeAtStart;
 		int entersDuring;
 		int leavesDuring;
 
-		OpenExcursion(long id, int startTick, ExcursionFirstStep firstStep, boolean wentOutside, int stackSizeAtStart)
+		OpenExcursion(long id, int startTick, boolean wentOutside, int stackSizeAtStart)
 		{
 			this.id = id;
 			this.startTick = startTick;
-			this.firstStep = firstStep;
 			this.wentOutside = wentOutside;
 			this.stackSizeAtStart = stackSizeAtStart;
 		}
@@ -305,9 +297,7 @@ public class StackStatsEngine
 
 	private void startExcursion(int tick, KnightLocation location)
 	{
-		ExcursionFirstStep firstStep = location == KnightLocation.STACK_TILE
-			? ExcursionFirstStep.STACK_TILE : ExcursionFirstStep.OUTSIDE;
-		openExcursion = new OpenExcursion(nextExcursionId++, tick, firstStep, location == KnightLocation.OUTSIDE,
+		openExcursion = new OpenExcursion(nextExcursionId++, tick, location == KnightLocation.OUTSIDE,
 			prevStackIds.size());
 		excursionCount++;
 
@@ -346,7 +336,7 @@ public class StackStatsEngine
 		int length = Math.max(0, tick - ex.startTick);
 		excursionLengths.add(length);
 
-		sink.onExcursionClosed(new ExcursionRow(ex.id, ex.startTick, tick, length, ex.firstStep, ex.wentOutside,
+		sink.onExcursionClosed(new ExcursionRow(ex.id, ex.startTick, tick, length, ex.wentOutside,
 			ex.stackSizeAtStart, ex.entersDuring, ex.leavesDuring, outcome));
 		openExcursion = null;
 	}

@@ -55,7 +55,7 @@ public class StackStatsCsvWriter
 				}
 				writeHeader(windowsFile, "window_id,start_tick,length,exposed_ticks,leavers,enters,knight_moved,"
 					+ "move_tick,length_bucket,close_reason,blocking_attempted");
-				writeHeader(excursionsFile, "excursion_id,start_tick,end_tick,length_ticks,first_step,went_outside,"
+				writeHeader(excursionsFile, "excursion_id,start_tick,end_tick,length_ticks,went_outside,"
 					+ "stack_size_at_start,enters_during,leaves_during,outcome");
 			}
 			catch (IOException e)
@@ -87,7 +87,7 @@ public class StackStatsCsvWriter
 	public void writeExcursion(StackStatsEngine.ExcursionRow row)
 	{
 		append(excursionsFile, row.getExcursionId() + "," + row.getStartTick() + "," + row.getEndTick() + ","
-			+ row.getLengthTicks() + "," + row.getFirstStep() + "," + row.isWentOutside() + ","
+			+ row.getLengthTicks() + "," + row.isWentOutside() + ","
 			+ row.getStackSizeAtStart() + "," + row.getEntersDuring() + "," + row.getLeavesDuring() + ","
 			+ row.getOutcome());
 	}
