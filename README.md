@@ -21,11 +21,11 @@ A RuneLite plugin designed to assist with splashing, mostly focused on Ardy Knig
 Three types of customizable tile markers:
 
 1. **Knight Boundary** - Mark a boundary tile to receive notifications when an NPC reaches it
-2. **Knight Tile 1** - First movement tracking tile
-3. **Knight Tile 2** - Second movement tracking tile
+2. **Knight Tile** - The tile the knight normally stands on
+3. **Stack Tile** - The tile the player stack stands on
 
 ### Movement Tracking
-When both **Knight Tile 1** and **Knight Tile 2** are set, the plugin automatically:
+When both **Knight Tile** and **Stack Tile** are set, the plugin automatically:
 - Tracks NPC movements between the two tiles
 - Calculates movements per minute
 - Displays real-time statistics in the overlay
@@ -75,10 +75,10 @@ Right-click any ground tile to access the tile marker menus:
 - Receive notification when NPC reaches this tile
 - Change color: Knight Boundary → Color → Open plugin settings
 
-**Knight Tile 1 & 2:**
-- Right-click tile → Knight Tile 1 (or 2) → Set
+**Knight Tile & Stack Tile:**
+- Right-click tile → Knight Tile (or Stack Tile) → Set
 - When both are set, movement tracking begins automatically
-- Movements per minute displayed in overlay
+- Movements per hour displayed in overlay
 
 ### Reading the Overlay
 
@@ -88,7 +88,7 @@ The overlay displays (when visible):
   - Orange: at or below the warning threshold (default: 5 minutes)
   - Red: at or below the critical threshold (default: 2 minutes), or expired
 - **Boundary**: Shows "SET" when boundary tile is configured
-- **Movements**: Shows X.X/hr when both Knight Tiles are set
+- **Movements**: Shows X.X/hr when both the Knight Tile and Stack Tile are set
   - Cyan: No movements detected yet
   - Green: Movement tracking active
 
@@ -125,10 +125,23 @@ When **Visual Notification** is enabled, the full screen tint follows the same t
 | Setting | Description | Default |
 |---------|-------------|---------|
 | **Boundary Tile Color** | Color of the boundary tile marker (with alpha) | Red (semi-transparent) |
-| **Knight Tile 1 Color** | Color of the first movement tracking tile | Green |
-| **Knight Tile 2 Color** | Color of the second movement tracking tile | Blue |
+| **Knight Tile Color** | Color of the Knight Tile marker | Green |
+| **Stack Tile Color** | Color of the Stack Tile marker | Blue |
 
 All color settings support transparency via the alpha channel.
+
+### Stack Tracking
+
+**Disabled by default.** A data-collection feature for investigating how the knight escapes the
+pickpocket stack: diffs who's standing on the Stack Tile every tick, tracks how long the
+blocking flag stays "clear" between a player leaving and the next player entering, and tracks
+the knight's excursions away from the Knight Tile. Enable it under the "Stack Tracking" settings
+section, then:
+- CSV files are written to `.runelite/splashhelper/knightstack/` (events, windows, excursions)
+- Optionally enable "Log Raw Events" for a per-tick ENTER/LEAVE/DESPAWN CSV
+- Enable "Show Summary In Overlay" to see flag-clear and knight-move rates live in the timer overlay
+- Set "Blocking Re-setter Username" to a player's name (e.g. an alt) to tag flag-clear windows
+  where that player was on the Stack Tile, for comparing windows with/without them attempting to block
 
 ### Server Sync
 

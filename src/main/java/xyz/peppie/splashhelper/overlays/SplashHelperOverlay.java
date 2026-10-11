@@ -12,8 +12,11 @@ import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.PanelComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
+import xyz.peppie.splashhelper.SplashHelperConfig;
 import xyz.peppie.splashhelper.SplashHelperPlugin;
 import xyz.peppie.splashhelper.model.TimerAlertLevel;
+import xyz.peppie.splashhelper.service.StackStatsEngine;
+import xyz.peppie.splashhelper.service.StackStatsTracker;
 import xyz.peppie.splashhelper.service.TileManager;
 
 public class SplashHelperOverlay extends Overlay
@@ -22,13 +25,17 @@ public class SplashHelperOverlay extends Overlay
 	public static final Color WARNING_COLOR = new Color(255, 140, 0);
 	public static final Color CRITICAL_COLOR = Color.RED;
 
+	private final SplashHelperConfig config;
+	private final StackStatsTracker stackStatsTracker;
 	private SplashHelperPlugin plugin;
 	private TileManager tileManager;
 	private final PanelComponent panelComponent = new PanelComponent();
 
 	@Inject
-	private SplashHelperOverlay()
+	private SplashHelperOverlay(SplashHelperConfig config, StackStatsTracker stackStatsTracker)
 	{
+		this.config = config;
+		this.stackStatsTracker = stackStatsTracker;
 		setPosition(OverlayPosition.ABOVE_CHATBOX_RIGHT);
 	}
 
@@ -71,7 +78,7 @@ public class SplashHelperOverlay extends Overlay
 		}
 		
 		// Show movement tracking stats
-		if (tileManager.getKnightTile1() != null && tileManager.getKnightTile2() != null)
+		if (tileManager.getKnightTile() != null && tileManager.getStackTile() != null)
 		{
 			double movementsPerHour = tileManager.getMovementsPerHour();
 			String movementText = String.format("%.1f/hr", movementsPerHour);
@@ -88,7 +95,12 @@ public class SplashHelperOverlay extends Overlay
 				.rightColor(movementColor)
 				.build());
 		}
-		
+
+		if (config.enableStackTracking() && config.showStackTrackingOverlay())
+		{
+			addStackTrackingLines();
+		}
+
 		// Check if timer is initialized
 		if (plugin.getTimerEnd() == null)
 		{
@@ -140,5 +152,20 @@ public class SplashHelperOverlay extends Overlay
 		}
 
 		return panelComponent.render(graphics);
+	}
+
+	private void addStackTrackingLines()
+	{
+		StackStatsEngine.Summary summary = stackStatsTracker.getSummary();
+		double hours = summary.getTicksObserved() * 0.6 / 3600.0;
+
+		panelComponent.getChildren().add(LineComponent.builder()
+			.left("Clear/hr:")
+			.right(String.format("%.1f", StackStatsTracker.perHour(summary.getFlagClearTicks(), hours)))
+			.build());
+		panelComponent.getChildren().add(LineComponent.builder()
+			.left("Knight Moves/hr:")
+			.right(String.format("%.2f", StackStatsTracker.perHour(summary.getExcursionCount(), hours)))
+			.build());
 	}
 }

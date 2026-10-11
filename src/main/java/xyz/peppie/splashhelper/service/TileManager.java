@@ -21,8 +21,16 @@ public class TileManager
 {
 	private static final String CONFIG_GROUP = "splashhelper";
 	private static final String CONFIG_BOUNDARY_TILE = "boundaryTile";
-	private static final String CONFIG_KNIGHT_TILE1 = "knightTile1";
-	private static final String CONFIG_KNIGHT_TILE2 = "knightTile2";
+	private static final String CONFIG_KNIGHT_TILE = "knightTile";
+	private static final String CONFIG_STACK_TILE = "stackTile";
+
+	// Pre-rename config keys ("Knight Tile 1/2"), migrated to the keys above on startup.
+	private static final String LEGACY_CONFIG_KNIGHT_TILE1 = "knightTile1";
+	private static final String LEGACY_CONFIG_KNIGHT_TILE2 = "knightTile2";
+	private static final String LEGACY_CONFIG_KNIGHT_TILE1_COLOR = "knightTile1Color";
+	private static final String LEGACY_CONFIG_KNIGHT_TILE2_COLOR = "knightTile2Color";
+	private static final String CONFIG_KNIGHT_TILE_COLOR = "knightTileColor";
+	private static final String CONFIG_STACK_TILE_COLOR = "stackTileColor";
 
 	@Inject
 	private SplashHelperConfig config;
@@ -40,10 +48,10 @@ public class TileManager
 	private WorldPoint boundaryTile = null;
 
 	@Getter
-	private WorldPoint knightTile1 = null;
+	private WorldPoint knightTile = null;
 
 	@Getter
-	private WorldPoint knightTile2 = null;
+	private WorldPoint stackTile = null;
 
 	// Movement tracking
 	private WorldPoint lastNpcPosition = null;
@@ -77,7 +85,7 @@ public class TileManager
 		this.boundaryTile = tile;
 		boundaryNotified = false;
 		saveTile(CONFIG_BOUNDARY_TILE, tile);
-		log.debug("✓ Boundary tile successfully set to: {}", tile);
+		log.debug("Boundary tile set to: {}", tile);
 	}
 
 	/**
@@ -88,61 +96,52 @@ public class TileManager
 		boundaryTile = null;
 		boundaryNotified = false;
 		saveTile(CONFIG_BOUNDARY_TILE, null);
-		log.debug("✓ Boundary tile unset");
+		log.debug("Boundary tile unset");
 	}
 
-	/**
-	 * Set knight tile 1.
-	 */
-	public void setKnightTile1(WorldPoint tile)
+	public void setKnightTile(WorldPoint tile)
 	{
-		this.knightTile1 = tile;
-		saveTile(CONFIG_KNIGHT_TILE1, tile);
-		log.debug("✓ Knight Tile 1 successfully set to: {}", tile);
-		
+		this.knightTile = tile;
+		saveTile(CONFIG_KNIGHT_TILE, tile);
+		log.debug("Knight Tile set to: {}", tile);
+
 		// Initialize tracking if both tiles are set
-		if (knightTile1 != null && knightTile2 != null)
+		if (knightTile != null && stackTile != null)
+		{
+			resetMovementTracking();
+		}
+	}
+
+	public void unsetKnightTile()
+	{
+		knightTile = null;
+		saveTile(CONFIG_KNIGHT_TILE, null);
+		resetMovementTracking();
+		log.debug("Knight Tile unset");
+	}
+
+	public void setStackTile(WorldPoint tile)
+	{
+		this.stackTile = tile;
+		saveTile(CONFIG_STACK_TILE, tile);
+		log.debug("Stack Tile set to: {}", tile);
+
+		// Initialize tracking if both tiles are set
+		if (knightTile != null && stackTile != null)
 		{
 			resetMovementTracking();
 		}
 	}
 
 	/**
-	 * Unset knight tile 1.
+	 * Unset the Stack Tile.
 	 */
-	public void unsetKnightTile1()
+	public void unsetStackTile()
 	{
-		knightTile1 = null;
-		saveTile(CONFIG_KNIGHT_TILE1, null);
+		stackTile = null;
+		saveTile(CONFIG_STACK_TILE, null);
 		resetMovementTracking();
-		log.debug("✓ Knight Tile 1 unset");
-	}
-
-	/**
-	 * Set knight tile 2.
-	 */
-	public void setKnightTile2(WorldPoint tile)
-	{
-		this.knightTile2 = tile;
-		saveTile(CONFIG_KNIGHT_TILE2, tile);
-		log.debug("✓ Knight Tile 2 successfully set to: {}", tile);
-		
-		// Initialize tracking if both tiles are set
-		if (knightTile1 != null && knightTile2 != null)
-		{
-			resetMovementTracking();
-		}
-	}
-
-	/**
-	 * Unset knight tile 2.
-	 */
-	public void unsetKnightTile2()
-	{
-		knightTile2 = null;
-		saveTile(CONFIG_KNIGHT_TILE2, null);
-		resetMovementTracking();
-		log.debug("✓ Knight Tile 2 unset");
+		log.debug("Stack Tile unset");
 	}
 
 	/**
@@ -176,21 +175,21 @@ public class TileManager
 	}
 
 	/**
-	 * Track NPC movement between Knight Tile 1 and Knight Tile 2.
+	 * Track NPC movement between the Knight Tile and the Stack Tile.
 	 */
 	public void trackKnightMovement()
 	{
-		if (knightTile1 != null && knightTile2 != null && currentTarget != null)
+		if (knightTile != null && stackTile != null && currentTarget != null)
 		{
 			WorldPoint currentPosition = currentTarget.getWorldLocation();
-			
+
 			if (currentPosition != null)
 			{
-				// Check if NPC is on either Knight Tile
-				boolean onTile1 = currentPosition.equals(knightTile1);
-				boolean onTile2 = currentPosition.equals(knightTile2);
-				
-				if (onTile1 || onTile2)
+				// Check if NPC is on either tile
+				boolean onKnightTile = currentPosition.equals(knightTile);
+				boolean onStackTile = currentPosition.equals(stackTile);
+
+				if (onKnightTile || onStackTile)
 				{
 					// Initialize tracking on first detection
 					if (trackingStartTime == null)
@@ -202,18 +201,18 @@ public class TileManager
 					else if (lastNpcPosition != null && !currentPosition.equals(lastNpcPosition))
 					{
 						// Only count movements between the two tiles
-						boolean wasOnTile1 = lastNpcPosition.equals(knightTile1);
-						boolean wasOnTile2 = lastNpcPosition.equals(knightTile2);
-						
-						if ((wasOnTile1 && onTile2) || (wasOnTile2 && onTile1))
+						boolean wasOnKnightTile = lastNpcPosition.equals(knightTile);
+						boolean wasOnStackTile = lastNpcPosition.equals(stackTile);
+
+						if ((wasOnKnightTile && onStackTile) || (wasOnStackTile && onKnightTile))
 						{
 							movementCount++;
 							sessionManager.recordKnightMovement();
 						}
-						
+
 						lastNpcPosition = currentPosition;
 					}
-					
+
 					// Calculate movements per hour
 					if (trackingStartTime != null)
 					{
@@ -245,8 +244,8 @@ public class TileManager
 			
 			if (knightPos != null)
 			{
-				boolean onKnightTile = (knightTile1 != null && knightPos.equals(knightTile1)) ||
-									   (knightTile2 != null && knightPos.equals(knightTile2));
+				boolean onKnightTile = (knightTile != null && knightPos.equals(knightTile)) ||
+									   (stackTile != null && knightPos.equals(stackTile));
 				boolean onBoundary = boundaryTile != null && knightPos.equals(boundaryTile);
 				
 				// hasEscaped state machine
@@ -315,7 +314,6 @@ public class TileManager
 	 */
 	public void reset()
 	{
-		// Keep persisted tiles (boundaryTile, knightTile1, knightTile2) — they are restored on startup
 		currentTarget = null;
 		sessionKnight = null;
 		boundaryNotified = false;
@@ -333,10 +331,38 @@ public class TileManager
 	 */
 	public void loadPersistedTiles()
 	{
+		migrateLegacyTileConfig();
 		boundaryTile = loadTile(CONFIG_BOUNDARY_TILE);
-		knightTile1 = loadTile(CONFIG_KNIGHT_TILE1);
-		knightTile2 = loadTile(CONFIG_KNIGHT_TILE2);
-		log.debug("Loaded persisted tiles - boundary: {}, knight1: {}, knight2: {}", boundaryTile, knightTile1, knightTile2);
+		knightTile = loadTile(CONFIG_KNIGHT_TILE);
+		stackTile = loadTile(CONFIG_STACK_TILE);
+		log.debug("Loaded persisted tiles - boundary: {}, knight: {}, stack: {}", boundaryTile, knightTile, stackTile);
+	}
+
+	private void migrateLegacyTileConfig()
+	{
+		migrateConfigKey(LEGACY_CONFIG_KNIGHT_TILE1, CONFIG_KNIGHT_TILE);
+		migrateConfigKey(LEGACY_CONFIG_KNIGHT_TILE2, CONFIG_STACK_TILE);
+		migrateConfigKey(LEGACY_CONFIG_KNIGHT_TILE1_COLOR, CONFIG_KNIGHT_TILE_COLOR);
+		migrateConfigKey(LEGACY_CONFIG_KNIGHT_TILE2_COLOR, CONFIG_STACK_TILE_COLOR);
+	}
+
+	private void migrateConfigKey(String legacyKey, String newKey)
+	{
+		String existingNewValue = configManager.getConfiguration(CONFIG_GROUP, newKey);
+		if (existingNewValue != null && !existingNewValue.isEmpty())
+		{
+			return;
+		}
+
+		String legacyValue = configManager.getConfiguration(CONFIG_GROUP, legacyKey);
+		if (legacyValue == null || legacyValue.isEmpty())
+		{
+			return;
+		}
+
+		configManager.setConfiguration(CONFIG_GROUP, newKey, legacyValue);
+		configManager.unsetConfiguration(CONFIG_GROUP, legacyKey);
+		log.debug("Migrated legacy config key '{}' to '{}'", legacyKey, newKey);
 	}
 
 	private void saveTile(String key, WorldPoint tile)

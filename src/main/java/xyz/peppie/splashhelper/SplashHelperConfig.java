@@ -96,22 +96,22 @@ public interface SplashHelperConfig extends Config
 
 	@Alpha
 	@ConfigItem(
-		keyName = "knightTile1Color",
-		name = "Knight Tile 1 Color",
-		description = "Color of the Knight Tile 1 marker"
+		keyName = "knightTileColor",
+		name = "Knight Tile Color",
+		description = "Color of the Knight Tile marker"
 	)
-	default Color knightTile1Color()
+	default Color knightTileColor()
 	{
 		return new Color(0, 255, 0, 255); // Green
 	}
 
 	@Alpha
 	@ConfigItem(
-		keyName = "knightTile2Color",
-		name = "Knight Tile 2 Color",
-		description = "Color of the Knight Tile 2 marker"
+		keyName = "stackTileColor",
+		name = "Stack Tile Color",
+		description = "Color of the Stack Tile marker"
 	)
-	default Color knightTile2Color()
+	default Color stackTileColor()
 	{
 		return new Color(0, 0, 255, 255); // Blue
 	}
@@ -621,4 +621,62 @@ public interface SplashHelperConfig extends Config
 		description = ""
 	)
 	void setRequirementsAcknowledged(boolean value);
+
+	// ==================== Stack Tracking ====================
+
+	@ConfigSection(
+		name = "Stack Tracking",
+		description = "Data collection for investigating how the Knight of Ardougne escapes the pickpocket stack",
+		position = 60,
+		closedByDefault = true
+	)
+	String stackTrackingSection = "stackTracking";
+
+	@ConfigItem(
+		keyName = "enableStackTracking",
+		name = "Enable Stack Tracking",
+		description = "Track Stack Tile enter/leave events, flag-clear windows and knight excursions, and write them to CSV files",
+		section = stackTrackingSection,
+		position = 0
+	)
+	default boolean enableStackTracking()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "logStackTrackingEvents",
+		name = "Log Raw Events",
+		description = "Also write a CSV row for every individual ENTER/LEAVE/DESPAWN event (verbose). Window and excursion CSVs are always written while tracking is enabled.",
+		section = stackTrackingSection,
+		position = 1
+	)
+	default boolean logStackTrackingEvents()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "showStackTrackingOverlay",
+		name = "Show Summary In Overlay",
+		description = "Show flag-clear and knight-move rates in the timer overlay",
+		section = stackTrackingSection,
+		position = 2
+	)
+	default boolean showStackTrackingOverlay()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "blockingResetterUsername",
+		name = "Blocking Re-setter Username",
+		description = "Username of a player (e.g. an alt) to track as attempting to block the flag re-set, for comparing flag-clear windows with/without blocking",
+		section = stackTrackingSection,
+		position = 3
+	)
+	default String blockingResetterUsername()
+	{
+		return "";
+	}
 }

@@ -75,6 +75,7 @@ import xyz.peppie.splashhelper.model.SplashSession;
 import xyz.peppie.splashhelper.model.SplashSpell;
 import xyz.peppie.splashhelper.model.TimerAlertLevel;
 import xyz.peppie.splashhelper.service.KnightDetector;
+import xyz.peppie.splashhelper.service.StackStatsTracker;
 import xyz.peppie.splashhelper.service.NotificationService;
 import xyz.peppie.splashhelper.service.PlayerTracker;
 import xyz.peppie.splashhelper.service.RuneCalculator;
@@ -157,6 +158,9 @@ public class SplashHelperPlugin extends Plugin
 	private TileManager tileManager;
 
 	@Inject
+	private StackStatsTracker stackStatsTracker;
+
+	@Inject
 	private KeyManager keyManager;
 
 	@Inject
@@ -182,7 +186,7 @@ public class SplashHelperPlugin extends Plugin
 	private boolean overlaysVisible = true;
 
 	private boolean hasNotified = false;
-	
+
 	// Track previous game state for welcome message
 	private GameState previousGameState = null;
 	private boolean serverConnectPending = false;
@@ -224,14 +228,14 @@ public class SplashHelperPlugin extends Plugin
 		return tileManager.getBoundaryTile();
 	}
 
-	public WorldPoint getKnightTile1()
+	public WorldPoint getKnightTile()
 	{
-		return tileManager.getKnightTile1();
+		return tileManager.getKnightTile();
 	}
 
-	public WorldPoint getKnightTile2()
+	public WorldPoint getStackTile()
 	{
-		return tileManager.getKnightTile2();
+		return tileManager.getStackTile();
 	}
 
 	public boolean isHasEscaped()
@@ -410,6 +414,8 @@ public class SplashHelperPlugin extends Plugin
 		lastStatsSample = null;
 		playerTracker.reset();
 		showVisualNotification = false;
+
+		stackStatsTracker.shutdown(client.getTickCount());
 	}
 
 	@Subscribe
@@ -633,6 +639,7 @@ public class SplashHelperPlugin extends Plugin
 			notificationService.sendBoundaryNotification("Knight reached boundary tile!");
 		}
 		tileManager.trackKnightMovement();
+		updateStackStatsTracking();
 
 		guideEngine.onGameTick();
 
@@ -818,10 +825,10 @@ public class SplashHelperPlugin extends Plugin
 
 				addTileSubmenu(entry, 1, "Knight Boundary", tileManager.getBoundaryTile(),
 					this::onBoundarySetClick, this::onBoundaryUnsetClick, this::onBoundaryColorClick);
-				addTileSubmenu(entry, 2, "Knight Tile 1", tileManager.getKnightTile1(),
-					this::onKnightTile1SetClick, this::onKnightTile1UnsetClick, this::onKnightTile1ColorClick);
-				addTileSubmenu(entry, 3, "Knight Tile 2", tileManager.getKnightTile2(),
-					this::onKnightTile2SetClick, this::onKnightTile2UnsetClick, this::onKnightTile2ColorClick);
+				addTileSubmenu(entry, 2, "Knight Tile", tileManager.getKnightTile(),
+					this::onKnightTileSetClick, this::onKnightTileUnsetClick, this::onKnightTileColorClick);
+				addTileSubmenu(entry, 3, "Stack Tile", tileManager.getStackTile(),
+					this::onStackTileSetClick, this::onStackTileUnsetClick, this::onStackTileColorClick);
 
 				// Only add it once
 				break;
@@ -876,7 +883,7 @@ public class SplashHelperPlugin extends Plugin
 		{
 			WorldPoint location = tile.getWorldLocation();
 			tileManager.setBoundaryTile(location);
-			log.debug("✓ Boundary tile successfully set to: {}", location);
+			log.debug("Boundary tile set to: {}", location);
 			notificationService.sendNotification("Boundary tile set at: " + location.getX() + ", " + location.getY());
 		}
 	}
@@ -895,66 +902,70 @@ public class SplashHelperPlugin extends Plugin
 		notificationService.sendNotification("Change boundary color in the plugin settings");
 	}
 
-	private void onKnightTile1SetClick(MenuEntry entry)
+	private void onKnightTileSetClick(MenuEntry entry)
 	{
 		if (client.getTopLevelWorldView() == null)
 		{
-			log.warn("TopLevelWorldView is null, cannot set Knight Tile 1");
+			log.warn("TopLevelWorldView is null, cannot set Knight Tile");
 			return;
 		}
-		
+
 		Tile tile = client.getTopLevelWorldView().getSelectedSceneTile();
-		
+
 		if (tile != null)
 		{
 			WorldPoint location = tile.getWorldLocation();
-			tileManager.setKnightTile1(location);
-			log.debug("✓ Knight Tile 1 successfully set to: {}", location);
-			notificationService.sendNotification("Knight Tile 1 set at: " + location.getX() + ", " + location.getY());
+			tileManager.setKnightTile(location);
+			stackStatsTracker.reset();
+			log.debug("Knight Tile set to: {}", location);
+			notificationService.sendNotification("Knight Tile set at: " + location.getX() + ", " + location.getY());
 		}
 	}
 
-	private void onKnightTile1UnsetClick(MenuEntry entry)
+	private void onKnightTileUnsetClick(MenuEntry entry)
 	{
-		tileManager.unsetKnightTile1();
-		log.debug("✓ Knight Tile 1 unset");
-		notificationService.sendNotification("Knight Tile 1 unset");
+		tileManager.unsetKnightTile();
+		stackStatsTracker.reset();
+		log.debug("✓ Knight Tile unset");
+		notificationService.sendNotification("Knight Tile unset");
 	}
 
-	private void onKnightTile1ColorClick(MenuEntry entry)
+	private void onKnightTileColorClick(MenuEntry entry)
 	{
-		notificationService.sendNotification("Change Knight Tile 1 color in the plugin settings");
+		notificationService.sendNotification("Change Knight Tile color in the plugin settings");
 	}
 
-	private void onKnightTile2SetClick(MenuEntry entry)
+	private void onStackTileSetClick(MenuEntry entry)
 	{
 		if (client.getTopLevelWorldView() == null)
 		{
-			log.warn("TopLevelWorldView is null, cannot set Knight Tile 2");
+			log.warn("TopLevelWorldView is null, cannot set Stack Tile");
 			return;
 		}
-		
+
 		Tile tile = client.getTopLevelWorldView().getSelectedSceneTile();
-		
+
 		if (tile != null)
 		{
 			WorldPoint location = tile.getWorldLocation();
-			tileManager.setKnightTile2(location);
-			log.debug("✓ Knight Tile 2 successfully set to: {}", location);
-			notificationService.sendNotification("Knight Tile 2 set at: " + location.getX() + ", " + location.getY());
+			tileManager.setStackTile(location);
+			stackStatsTracker.reset();
+			log.debug("✓ Stack Tile successfully set to: {}", location);
+			notificationService.sendNotification("Stack Tile set at: " + location.getX() + ", " + location.getY());
 		}
 	}
 
-	private void onKnightTile2UnsetClick(MenuEntry entry)
+	private void onStackTileUnsetClick(MenuEntry entry)
 	{
-		tileManager.unsetKnightTile2();
-		log.debug("✓ Knight Tile 2 unset");
-		notificationService.sendNotification("Knight Tile 2 unset");
+		tileManager.unsetStackTile();
+		stackStatsTracker.reset();
+		log.debug("✓ Stack Tile unset");
+		notificationService.sendNotification("Stack Tile unset");
 	}
 
-	private void onKnightTile2ColorClick(MenuEntry entry)
+	private void onStackTileColorClick(MenuEntry entry)
 	{
-		notificationService.sendNotification("Change Knight Tile 2 color in the plugin settings");
+		notificationService.sendNotification("Change Stack Tile color in the plugin settings");
 	}
 
 	
@@ -1264,6 +1275,49 @@ public class SplashHelperPlugin extends Plugin
 		{
 			sessionManager.addPickpocketer(pickpocketer);
 		}
+	}
+
+	private void updateStackStatsTracking()
+	{
+		WorldPoint knightTileLoc = tileManager.getKnightTile();
+		WorldPoint stackTileLoc = tileManager.getStackTile();
+		if (knightTileLoc == null || stackTileLoc == null)
+		{
+			return;
+		}
+
+		String blockingResetterName = config.blockingResetterUsername();
+		Integer blockingResetterId = null;
+
+		Set<Integer> idsOnStackTile = new HashSet<>();
+		Set<Integer> allIdsInScene = new HashSet<>();
+		for (Player player : client.getTopLevelWorldView().players())
+		{
+			if (player == null)
+			{
+				continue;
+			}
+			allIdsInScene.add(player.getId());
+			WorldPoint pos = player.getWorldLocation();
+			if (pos != null && pos.equals(stackTileLoc))
+			{
+				idsOnStackTile.add(player.getId());
+			}
+			if (!blockingResetterName.isEmpty() && blockingResetterName.equalsIgnoreCase(player.getName()))
+			{
+				blockingResetterId = player.getId();
+			}
+		}
+
+		WorldPoint knightPos = null;
+		Actor knight = tileManager.getCurrentTarget();
+		if (knight != null)
+		{
+			knightPos = knight.getWorldLocation();
+		}
+
+		stackStatsTracker.onGameTick(client.getTickCount(), knightTileLoc, stackTileLoc, knightPos,
+			idsOnStackTile, allIdsInScene, blockingResetterId);
 	}
 
 	public int countNearbyPlayers(int radius)

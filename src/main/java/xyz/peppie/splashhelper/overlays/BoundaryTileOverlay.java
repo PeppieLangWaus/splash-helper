@@ -43,16 +43,16 @@ public class BoundaryTileOverlay extends Overlay
 			renderTile(graphics, tileManager.getBoundaryTile(), config.boundaryTileColor(), originalStroke);
 		}
 
-		// Render Knight Tile 1
-		if (tileManager.getKnightTile1() != null)
+		// Render Knight Tile
+		if (tileManager.getKnightTile() != null)
 		{
-			renderTile(graphics, tileManager.getKnightTile1(), config.knightTile1Color(), originalStroke);
+			renderTile(graphics, tileManager.getKnightTile(), config.knightTileColor(), originalStroke);
 		}
 
-		// Render Knight Tile 2
-		if (tileManager.getKnightTile2() != null)
+		// Render Stack Tile
+		if (tileManager.getStackTile() != null)
 		{
-			renderTile(graphics, tileManager.getKnightTile2(), config.knightTile2Color(), originalStroke);
+			renderTile(graphics, tileManager.getStackTile(), config.stackTileColor(), originalStroke);
 		}
 
 		return null;
